@@ -18,7 +18,7 @@ install_requires = [
 setup(
     name="gcp-dsclient",
     version="0.0.1",
-    description="Simple GCP python client library for interactive data science",
+    description="Simple Python client library for interactive data science with Google Cloud Platform",
     long_description=README,
     author="Yoichi NAGAI",
     url="http://github.com/orfeon/gcp-python-dsclient",

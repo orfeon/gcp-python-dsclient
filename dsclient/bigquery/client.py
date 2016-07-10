@@ -110,7 +110,7 @@ class Client(ClientBase):
                                         timeoutMs=100000).execute()
             _check_resperror(resp)
 
-            df = sehema.to_dataframe(resp["rows"])
+            df = schema.to_dataframe(resp["rows"])
             df_list.append(df)
             current_row_size += len(df)
             if debug:
@@ -157,10 +157,10 @@ class Client(ClientBase):
         Parameters
         ----------
         table_name : str
-            dataset.table.
+            dataset.table
         append : boolean
-            if True, append records to existing table.
-            if False, if table exist, delete the table and create new table and append records.
+            if True, append records to existing table (if not exist, create new table).
+            if False, if table exist, delete it and create new table. And append records.
         write_disposition : str
             WRITE_TRUNCATE, WRITE_APPEND, WRITE_EMPTY.
         create_disposition : str
@@ -245,6 +245,12 @@ class Client(ClientBase):
 
         table = self.get_table(table_name)
         return table
+
+    def cancel(self, job_id):
+
+        jobs = self._bqservice.jobs()
+        job = jobs.cancel(projectId=self._project_id, jobId=job_id).execute()
+        return job
 
     def get_dataset(self, dataset_id):
 
