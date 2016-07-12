@@ -1,8 +1,8 @@
-Python Client Library for Data Science on GCP
+GCP Python Client Library for Data Science
 ==========================
 
-    GCP-DSClient (`Google Cloud Platform`_ Client library for Data Science)
-    helps interactive data science using famous data science libraries such as pandas, ipython on GCP.
+    GCP-DSClient (`Google Cloud Platform`_ Data Science Client).
+    This library helps interactive data science by coordinating data science libraries such as pandas, ipython and Google Cloud Infrastructure.
 
 .. _Google Cloud Platform: https://cloud.google.com/
 
@@ -16,6 +16,9 @@ This client supports the following Google Cloud Platform services:
 
 Quick Start
 -----------
+
+Installation
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ::
 
@@ -37,33 +40,35 @@ Initialize Client instance
     # you need to set project name, service email, and access key file path.
     client = gcp.Client("your project name", "xxxxxxx@gmail.com", "./keyfile.p12")
 
-Usage for Google BigQuery
---------------------
+Usage Google BigQuery
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Google `BigQuery`_ (`BigQuery API docs`_)
 
-.. _Cloud Storage: https://cloud.google.com/storage/docs
-.. _Storage API docs: https://cloud.google.com/storage/docs/json_api/v1
+.. _BigQuery: https://cloud.google.com/storage/docs
+.. _BigQuery API docs: https://cloud.google.com/storage/docs/json_api/v1
 
 .. code:: python
 
-    import pandas as pd
-
-    # Query table and read data as pandas.DataFrame
+    # Query and read data as pandas.DataFrame
     query_string = """
         SELECT date, year
         FROM aaa
         WHERE year = 2016
     """
-    df = client.query(query_string)
-    # If query large data, use client.lquery()
+    df = client.query(query_string) # Use lquery() for large data.
 
-    # Upload pandas.DataFrame to table on BigQuery.
-    client.load(df, "your_dataset.your_table", append=True)
+    # Upload pandas.DataFrame to existing table on BigQuery.
+    client.load(df, "your_dataset.your_table")
+    # Override existing table.
+    client.load(df, "your_dataset.your_table", append=False)
+
+    # Insert query result into table. (Override if table exists)
+    client.insert(query_string, "your_dataset.your_table_2")
 
 
-Usage for Google Cloud Storage
---------------------
+Usage Google Cloud Storage
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Google `Cloud Storage`_ (`Storage API docs`_)
 
@@ -74,19 +79,26 @@ Google `Cloud Storage`_ (`Storage API docs`_)
 
 .. _official Google Cloud Storage documentation: https://cloud.google.com/storage/docs/cloud-console#_creatingbuckets
 
-Write/Read CSV file to/from Cloud Storage from/to local pandas.DataFrame
-~~~~~~~~~~~~~~~~~~
-
 .. code:: python
 
     import pandas as pd
 
-    # you can write local pandas.DataFrame to Cloud Storage.
+    # Write local pandas.DataFrame to Cloud Storage.
     df1 = pd.DataFrame(...somedata...)
-    client.write_csv(df1, "gs://your_bucket_name/your_file_path.csv")
+    client.write_csv(df1, "gs://your_bucket/your_file1.csv")
 
-    # you can read pandas.DataFrame from csv file on Cloud Storage.
-    df2 = client.read_csv("gs://your_bucket_name/your_file_path.csv")
+    # Read pandas.DataFrame from csv file on Cloud Storage.
+    df2 = client.read_csv("gs://your_bucket/your_file2.csv")
+
+    # Write blob data (ex: ML model) to Cloud Storage.
+    reg = LinearRegressor()
+    reg.fit(df1[["attr1","attr2",...]], df1["target"])
+    client.write_blob(reg, "gs://your_bucket/your_file.model")
+
+    # Read blob data from Cloud Storage.
+    reg = client.read_blob("gs://your_bucket/your_file.model")
+    prd = reg.predict(df2[["attr1","attr2",...]])
+
 
 License
 -------
