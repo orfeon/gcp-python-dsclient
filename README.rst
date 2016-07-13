@@ -1,8 +1,8 @@
 GCP Python Client Library for Data Science
 ==========================
 
-    GCP-DSClient (`Google Cloud Platform`_ Data Science Client).
-    This library helps interactive data science by coordinating data science libraries such as pandas, ipython and Google Cloud Infrastructure.
+    GCP-DSClient (`Google Cloud Platform`_ Data Science Client)
+    helps interactive data science by coordinating data science libraries (pandas, ipython) and Google Cloud Infrastructure.
 
 .. _Google Cloud Platform: https://cloud.google.com/
 

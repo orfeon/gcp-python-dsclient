@@ -1,6 +1,7 @@
 import time
 import pandas as pd
 from io import BytesIO
+from __future__ import print_function
 from apiclient.http import MediaInMemoryUpload
 from apiclient.http import BatchHttpRequest
 from googleapiclient.errors import HttpError
@@ -46,7 +47,7 @@ class Client(ClientBase):
         state = job["status"]["state"]
         wait_second = 0
         while "DONE" != state:
-            print("{0} (waiting second: {1}s)".format(state, wait_second))
+            print("\r{0} (waiting second: {1}s)".format(state, wait_second), end="")
             time.sleep(5)
             wait_second += 5
             job = jobs.get(projectId=self._project_id, jobId=job_id).execute()
@@ -85,6 +86,7 @@ class Client(ClientBase):
             if "errors" in rsp:
                 raise Exception(":".join([error["reason"] + error["message"] for error in rsp["errors"]]))
 
+        start_sec = time.time()
         job_id = resp["jobReference"]["jobId"]
         retry_count = 100
         while retry_count > 0 and not resp["jobComplete"]:
@@ -109,12 +111,14 @@ class Client(ClientBase):
                                         pageToken=page_token,
                                         timeoutMs=100000).execute()
             _check_resperror(resp)
-
             df = schema.to_dataframe(resp["rows"])
             df_list.append(df)
             current_row_size += len(df)
-            if debug:
-                print(resp["totalRows"], len(resp["rows"]), current_row_size)
+            current_sec = int(time.time() - start_sec)
+            row_rate = int(100 * current_row_size / float(resp["totalRows"]))
+            print("\r rows: read {0} / total {1} ({2}%), time: {3}s".format(current_row_size, resp["totalRows"], row_rate, current_sec), end="")
+            #if debug:
+            #    print(resp["totalRows"], len(resp["rows"]), current_row_size)
 
         dfs = pd.concat(df_list)
         return dfs
