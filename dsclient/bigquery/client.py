@@ -52,8 +52,8 @@ class Client(ClientBase):
             wait_second += 5
             job = jobs.get(projectId=self._project_id, jobId=job_id).execute()
             state = job["status"]["state"]
-            self._check_joberror(job)
-        print("DONE (waited second: {1}s)\n".format(wait_second))
+        print("\rDONE (waited second: {0}s)\n".format(wait_second))
+        self._check_joberror(job)
 
         return job
 

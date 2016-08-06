@@ -2,10 +2,11 @@ import os
 import time
 import bigquery
 import storage
+import compute
 from schema import Schema
 
 
-class Client(bigquery.Client, storage.Client):
+class Client(bigquery.Client, storage.Client, compute.Client):
 
     def __init__(self, project_id, account_email=None, keyfile_path=None):
 
@@ -20,7 +21,12 @@ class Client(bigquery.Client, storage.Client):
             dataset_id = table_id
             self.create_dataset(dataset_id=dataset_id, expiration_ms=3600000)
         table_name = "{0}.{1}".format(dataset_id, table_id)
-        self.insert(query, table_name)
+        try:
+            self.insert(query, table_name)
+        except:
+            if dataset_id == table_id:
+                self.delete_dataset(dataset_id)
+            raise
 
         #expirationTime = int(time.time()) * 1000 + 360000
         print("-----EXTRACTING TO STORAGE-----\n")
@@ -28,14 +34,21 @@ class Client(bigquery.Client, storage.Client):
             bucket = table_id
             self.create_bucket(bucket)
         gs_uri = "gs://{0}/{1}.csv".format(bucket, table_id)
-
-        table = self.extract(table_name, gs_uri)
-        schema = Schema(table["schema"])
+        try:
+            table = self.extract(table_name, gs_uri)
+        except:
+            if bucket == table_id:
+                self.delete_bucket(bucket)
+            self.delete_table(table_name)
+            if dataset_id == table_id:
+                self.delete_dataset(dataset_id)
+            raise
 
         self.delete_table(table_name)
         if dataset_id == table_id:
             self.delete_dataset(dataset_id)
 
+        schema = Schema(table["schema"])
         df = self.read_csv(gs_uri)
         df = schema.update_dtype(df)
 
