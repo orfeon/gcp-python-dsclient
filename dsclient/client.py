@@ -1,42 +1,46 @@
-import httplib2
-from oauth2client.client import GoogleCredentials
-from oauth2client.service_account import ServiceAccountCredentials
-from apiclient.discovery import build
+import os
+import time
+import bigquery
+import storage
+from schema import Schema
 
 
-class ClientBase(object):
+class Client(bigquery.Client, storage.Client):
 
-    def __init__(self, project_id=None, account_email=None, keyfile_path=None):
+    def __init__(self, project_id, account_email=None, keyfile_path=None):
 
-        self._project_id    = project_id
-        self._account_email = account_email
-        self._keyfile_path  = keyfile_path
+        super(Client, self).__init__(project_id, account_email, keyfile_path)
 
-    def _build_service(self, scope, api_name, api_version):
+    def lquery(self, query, dataset_id=None, bucket=None):
 
-        if self._account_email is None or self._keyfile_path is None:
-            credentials = GoogleCredentials.get_application_default()
-            service = build(api_name, api_version, credentials=credentials)
-            return service
-        else:
-            if self._keyfile_path.lower().endswith(".p12"):
-                credentials = ServiceAccountCredentials.from_p12_keyfile(
-                    self._account_email,
-                    self._keyfile_path,
-                    scopes=scope)
-            elif self._keyfile_path.lower().endswith(".json"):
-                credentials = ServiceAccountCredentials.from_json_keyfile_name(
-                    self._account_email,
-                    self._keyfile_path,
-                    scopes=scope)
-            else:
-                error_message = """
-                    Key file format [{0}] is illegal.
-                    Key file must be .json or .p12.
-                """.format(self._keyfile_path)
-                raise Exception(error_message)
+        table_id = "tmp_{0}_{1}_{2}".format(os.uname()[1], os.getpid(), int(time.time()))
 
-            http = httplib2.Http()
-            auth_http = credentials.authorize(http)
-            service = build(api_name, api_version, http=auth_http)
-            return service
+        print("-----INSERTING TEMP TABLE-----\n")
+        if dataset_id is None:
+            dataset_id = table_id
+            self.create_dataset(dataset_id=dataset_id, expiration_ms=3600000)
+        table_name = "{0}.{1}".format(dataset_id, table_id)
+        self.insert(query, table_name)
+
+        #expirationTime = int(time.time()) * 1000 + 360000
+        print("-----EXTRACTING TO STORAGE-----\n")
+        if bucket is None:
+            bucket = table_id
+            self.create_bucket(bucket)
+        gs_uri = "gs://{0}/{1}.csv".format(bucket, table_id)
+
+        table = self.extract(table_name, gs_uri)
+        schema = Schema(table["schema"])
+
+        self.delete_table(table_name)
+        if dataset_id == table_id:
+            self.delete_dataset(dataset_id)
+
+        df = self.read_csv(gs_uri)
+        df = schema.update_dtype(df)
+
+        self.delete_object(gs_uri)
+        if bucket == table_id:
+            self.delete_bucket(bucket)
+
+        return df

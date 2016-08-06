@@ -1,11 +1,11 @@
+from __future__ import print_function
 import time
 import pandas as pd
 from io import BytesIO
-from __future__ import print_function
 from apiclient.http import MediaInMemoryUpload
 from apiclient.http import BatchHttpRequest
 from googleapiclient.errors import HttpError
-from .. client import ClientBase
+from .. base import ClientBase
 from .. schema import Schema, convert_df2bqschema
 
 
@@ -53,6 +53,7 @@ class Client(ClientBase):
             job = jobs.get(projectId=self._project_id, jobId=job_id).execute()
             state = job["status"]["state"]
             self._check_joberror(job)
+        print("DONE (waited second: {1}s)\n".format(wait_second))
 
         return job
 
@@ -198,6 +199,9 @@ class Client(ClientBase):
 
         if job_id is not None:
             body["jobReference"] = {"jobId": job_id, "projectId": self._project_id}
+
+        if isinstance(df, str):
+            df = pd.read_csv(df)
 
         if table is None or not append:
             schema = convert_df2bqschema(df)

@@ -3,8 +3,8 @@ import pickle
 import pandas as pd
 from io import BytesIO
 from apiclient.http import MediaInMemoryUpload
-from dsclient.client import ClientBase
 from googleapiclient.errors import HttpError
+from .. base import ClientBase
 
 
 class Client(ClientBase):
@@ -29,15 +29,17 @@ class Client(ClientBase):
         bucket, obj = path.split("/", 1)
         return bucket, obj
 
-    def write(self, obj, uri, mimetype='application/octet-stream'):
+    def _try_execute(self, req, retry=3):
 
-        bucket, file_path = self._parse_uri(uri)
-        objects = self._gsservice.objects()
-        req = objects.insert(bucket=bucket,
-                             name=file_path,
-                             media_body=MediaInMemoryUpload(obj, mimetype=mimetype))
-        resp = req.execute()
-        return resp
+        while retry > 0:
+            try:
+                resp = req.execute()
+                return resp
+            except HttpError as e:
+                if e.resp.status >= 500 and retry > 0:
+                    retry -= 1
+                    continue
+                raise
 
     def read_csv(self, uri, sep=",", header="infer"):
 
@@ -48,7 +50,7 @@ class Client(ClientBase):
         df = pd.read_csv(BytesIO(resp), sep=sep, header=header)
         return df
 
-    def write_csv(self, df, uri, sep=","):
+    def write_csv(self, df, uri, sep=",", retry=3):
 
         bucket, file_path = self._parse_uri(uri)
         buf = BytesIO()
@@ -57,51 +59,52 @@ class Client(ClientBase):
         req = objects.insert(bucket=bucket,
                              name=file_path,
                              media_body=MediaInMemoryUpload(buf.getvalue(), mimetype='text/csv'))
-        resp = req.execute()
+        resp = self._try_execute(req, retry=retry)
 
-    def read_blob(self, uri):
+    def read_blob(self, uri, retry=3):
 
         bucket, file_path = self._parse_uri(uri)
         req = self._gsservice.objects().get_media(bucket=bucket, object=file_path)
-        resp = req.execute()
+        resp = self._try_execute(req, retry=retry)
         blob = pickle.loads(resp)
         return blob
 
-    def write_blob(self, blob, uri):
+    def write_blob(self, blob, uri, retry=3):
 
         bucket, file_path = self._parse_uri(uri)
         dump = pickle.dumps(blob)
+        media_body = MediaInMemoryUpload(dump, mimetype='application/octet-stream')
         objects = self._gsservice.objects()
         req = objects.insert(bucket=bucket,
                              name=file_path,
-                             media_body=MediaInMemoryUpload(dump, mimetype='application/octet-stream'))
-        resp = req.execute()
+                             media_body=media_body)
+        resp = self._try_execute(req, retry=retry)
 
-    def write_text(self, text, uri):
+    def write_text(self, text, uri, retry=3):
 
         bucket, file_path = self._parse_uri(uri)
         objects = self._gsservice.objects()
         req = objects.insert(bucket=bucket,
                              name=file_path,
                              media_body=MediaInMemoryUpload(text, mimetype='text/plain'))
-        resp = req.execute()
+        resp = self._try_execute(req, retry=retry)
 
-    def write_figure(self, figure, uri, image_type="png"):
+    def write_figure(self, figure, uri, image_type="png", retry=3):
 
         bucket, file_path = self._parse_uri(uri)
         buf = BytesIO()
         figure.savefig(buf, format=image_type)
+        media_body = MediaInMemoryUpload(buf.getvalue(), mimetype='image/'+image_type)
         objects = self._gsservice.objects()
-        req = objects.insert(bucket=bucket,
-                             name=file_path,
-                             media_body=MediaInMemoryUpload(buf.getvalue(), mimetype='image/'+image_type))
-        resp = req.execute()
+        req = objects.insert(bucket=bucket, name=file_path, media_body=media_body)
+        resp = self._try_execute(req, retry=retry)
 
-    def delete_object(self, uri):
+    def delete_object(self, uri, retry=3):
 
         bucket, file_path = self._parse_uri(uri)
         objects = self._gsservice.objects()
-        objects.delete(bucket=bucket, object=file_path).execute()
+        req = objects.delete(bucket=bucket, object=file_path)
+        resp = self._try_execute(req, retry=retry)
 
     def get_bucket(self, bucket):
 
@@ -121,7 +124,7 @@ class Client(ClientBase):
         bucket_list = buckets.list(project=self._project_id).execute()
         return bucket_list
 
-    def create_bucket(self, bucket, location=None, storage_class=None, projection=None):
+    def create_bucket(self, bucket, location=None, storage_class=None, projection=None, retry=3):
 
         body = {
             "name": bucket
@@ -131,11 +134,12 @@ class Client(ClientBase):
             body["location"] = location
 
         buckets = self._gsservice.buckets()
-        bucket_ = buckets.insert(project=self._project_id,
-                                body=body, projection=projection).execute()
-        return bucket_
+        req = buckets.insert(project=self._project_id, body=body, projection=projection)
+        resp = self._try_execute(req, retry=retry)
+        return resp
 
-    def delete_bucket(self, bucket):
+    def delete_bucket(self, bucket, retry=3):
 
         buckets = self._gsservice.buckets()
-        buckets.delete(bucket=bucket).execute()
+        req = buckets.delete(bucket=bucket)
+        resp = self._try_execute(req, retry=retry)
