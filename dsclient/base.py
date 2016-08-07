@@ -6,29 +6,30 @@ from apiclient.discovery import build
 
 class ClientBase(object):
 
-    def __init__(self, project_id=None, account_email=None, keyfile_path=None):
+    def __init__(self, project_id=None, keyfile_path=None, account_email=None):
 
         self._project_id    = project_id
-        self._account_email = account_email
         self._keyfile_path  = keyfile_path
+        self._account_email = account_email
 
-    def _build_service(self, scope, api_name, api_version):
+    def _build_service(self, api_name, api_version, scopes):
 
-        if self._account_email is None or self._keyfile_path is None:
+        if self._keyfile_path is None:
             credentials = GoogleCredentials.get_application_default()
             service = build(api_name, api_version, credentials=credentials)
-            return service
+            return credentials, service
         else:
-            if self._keyfile_path.lower().endswith(".p12"):
+            if self._keyfile_path.lower().endswith(".json"):
+                credentials = ServiceAccountCredentials.from_json_keyfile_name(
+                    self._keyfile_path,
+                    scopes=scopes)
+            elif self._keyfile_path.lower().endswith(".p12"):
+                if self._account_email is None:
+                    raise Exception("Input account email.")
                 credentials = ServiceAccountCredentials.from_p12_keyfile(
                     self._account_email,
                     self._keyfile_path,
-                    scopes=scope)
-            elif self._keyfile_path.lower().endswith(".json"):
-                credentials = ServiceAccountCredentials.from_json_keyfile_name(
-                    self._account_email,
-                    self._keyfile_path,
-                    scopes=scope)
+                    scopes=scopes)
             else:
                 error_message = """
                     Key file format [{0}] is illegal.
@@ -39,4 +40,4 @@ class ClientBase(object):
             http = httplib2.Http()
             auth_http = credentials.authorize(http)
             service = build(api_name, api_version, http=auth_http)
-            return service
+            return credentials, service

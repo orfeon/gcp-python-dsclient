@@ -8,9 +8,9 @@ from schema import Schema
 
 class Client(bigquery.Client, storage.Client, compute.Client):
 
-    def __init__(self, project_id, account_email=None, keyfile_path=None):
+    def __init__(self, project_id, keyfile_path=None, account_email=None):
 
-        super(Client, self).__init__(project_id, account_email, keyfile_path)
+        super(Client, self).__init__(project_id, keyfile_path, account_email)
 
     def lquery(self, query, dataset_id=None, bucket=None):
 

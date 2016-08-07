@@ -16,12 +16,12 @@ class Client(ClientBase):
     __API_VERSION = "v2"
 
 
-    def __init__(self, project_id, account_email=None, keyfile_path=None):
+    def __init__(self, project_id, keyfile_path=None, account_email=None):
 
-        super(Client, self).__init__(project_id, account_email, keyfile_path)
-        self._bqservice = super(Client, self)._build_service(Client.__ENDPOINT_GBQ,
-                                                             Client.__API_NAME,
-                                                             Client.__API_VERSION)
+        super(Client, self).__init__(project_id, keyfile_path, account_email)
+        self._bqcredentials, self._bqservice = super(Client, self)._build_service(Client.__API_NAME,
+                                                                                  Client.__API_VERSION,
+                                                                                  Client.__ENDPOINT_GBQ)
 
     def _parse_table_name(self, table_name):
 

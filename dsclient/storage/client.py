@@ -13,12 +13,12 @@ class Client(ClientBase):
     __API_NAME = "storage"
     __API_VERSION = "v1"
 
-    def __init__(self, project_id, account_email=None, keyfile_path=None):
+    def __init__(self, project_id, keyfile_path=None, account_email=None):
 
-        super(Client, self).__init__(project_id, account_email, keyfile_path)
-        self._gsservice = super(Client, self)._build_service(Client.__ENDPOINT_GCS,
-                                                             Client.__API_NAME,
-                                                             Client.__API_VERSION)
+        super(Client, self).__init__(project_id, keyfile_path, account_email)
+        self._gscredentials, self._gsservice = super(Client, self)._build_service(Client.__API_NAME,
+                                                                                  Client.__API_VERSION,
+                                                                                  Client.__ENDPOINT_GCS)
 
     def _parse_uri(self, uri):
 

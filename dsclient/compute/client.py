@@ -16,12 +16,23 @@ class Client(ClientBase):
 
     __API_URI = "https://www.googleapis.com/{0}/{1}/".format(__API_NAME, __API_VERSION)
 
-    def __init__(self, project_id, account_email=None, keyfile_path=None):
+    def __init__(self, project_id, keyfile_path=None, account_email=None):
 
-        super(Client, self).__init__(project_id, account_email, keyfile_path)
-        self._ceservice = super(Client, self)._build_service(Client.__ENDPOINT_GCE,
-                                                             Client.__API_NAME,
-                                                             Client.__API_VERSION)
+        super(Client, self).__init__(project_id, keyfile_path, account_email)
+        self._cecredentials, self._ceservice = super(Client, self)._build_service(Client.__API_NAME,
+                                                                                  Client.__API_VERSION,
+                                                                                  Client.__ENDPOINT_GCE)
+
+    def _try_batch_execute(self, batch, retry=3):
+
+        while retry > 0:
+            try:
+                batch.execute()
+                return
+            except TypeError:
+                from httplib2 import Http
+                self._cecredentials.refresh(Http())
+                retry -= 1
 
     def get_instance_metadata(self, param):
 
@@ -43,6 +54,11 @@ class Client(ClientBase):
         resp = self.get_instance(zone=zone, name=instance_name)
         return resp
 
+    def stop_current_instance(self):
+        current_instance = self.get_current_instance()
+        self.stop_instance(current_instance["name"], current_instance["zone"])
+
+
     def get_instance(self, zone, name):
         req = self._ceservice.instances().get(project=self._project_id,
                                               zone=zone,
@@ -50,10 +66,17 @@ class Client(ClientBase):
         resp = req.execute()
         return resp
 
-    def create_instance(self, names, zone, mtype,
-                        simage=None, sdisk=None, disksizegb=10, network=None,
-                        preemptible=False,
-                        block=True, config={}):
+    def create_instance(self, names, mtype,
+                        sdisks=None, simage=None, disksizegb=10,
+                        zone=None, network=None,
+                        preemptible=False, config={}):
+
+        if zone is None or network is None:
+            current_instance = self.get_current_instance()
+            if zone is None:
+                zone = current_instance["zone"].split("/")[-1]
+            if network is None:
+                network = current_instance["networkInterfaces"][0]["network"]
 
         init_config = {
             'machineType': "zones/{0}/machineTypes/{1}".format(zone, mtype),
@@ -76,53 +99,73 @@ class Client(ClientBase):
                 'scopes': ["https://www.googleapis.com/auth/cloud-platform"]
             }]
         }
-
-        if simage is None and sdisk is None:
-            raise Exception("You must input simage or sdisk!")
-
-        if sdisk is not None:
-            init_config["disks"][0]["source"] = sdisk
-        elif simage is not None:
-            init_config["disks"][0]["initializeParams"] = {'diskSizeGb': disksizegb, 'sourceImage': simage}
-
         init_config.update(config)
 
-        def callb(a=None):
-            print(a)
-
-        batch = BatchHttpRequest(callback=callb)
+        if simage is None and sdisks is None:
+            raise Exception("You must input simage or sdisks!")
 
         if isinstance(names, str):
             names = [names]
 
+        def check_exception(request_id, response, exception):
+            if exception is not None:
+                raise Exception(exception)
+
+        #batch = BatchHttpRequest()
+        batch = self._ceservice.new_batch_http_request(callback=check_exception)
         instances = self._ceservice.instances()
-        for name in names:
-            body = init_config.copy()
-            body.update({"name": name})
-            body["disks"][0]["source"] = "zones/{0}/disks/{1}".format(zone, name),
-            batch.add(instances.insert(project=self._project_id, zone=zone, body=body))
 
-        #import httplib2
-        #http = httplib2.Http()
-        #auth_http = self._credentials.authorize(http)
-        #resp = batch.execute(http=auth_http)
-        resp = instances.insert(project=self._project_id, zone=zone, body=body).execute()
-        print(resp)
+        if sdisks is not None:
+            if isinstance(sdisks, str):
+                sdisks = [sdisks]
+            if len(names) != len(sdisks):
+                raise Exception("instance num({0}) must be equal to sdisks num({1})!".format(len(names), len(sdisks)))
+            for name, sdisk in zip(names, sdisks):
+                body = init_config.copy()
+                body.update({"name": name})
+                body["disks"][0]["source"] = "zones/{0}/disks/{1}".format(zone, sdisk)
+                req = instances.insert(project="stage-orfeon", zone=zone, body=body)
+                batch.add(req)
+        elif simage is not None:
+            init_config["disks"][0]["initializeParams"] = {'diskSizeGb': disksizegb, 'sourceImage': simage}
+            for name in names:
+                body = init_config.copy()
+                body.update({"name": name})
+                req = instances.insert(project=self._project_id, zone=zone, body=body)
+                batch.add(req)
 
-        if not block:
-            return resp
+        self._try_batch_execute(batch)
 
-        return resp
-
+        check_names  = list(names)
+        failed_names = []
+        nall = len(check_names)
+        wait_second = 0
+        while check_names:
+            for check_name in check_names:
+                resp = instances.get(project=self._project_id, zone=zone, instance=check_name).execute()
+                if resp["status"] in ["RUNNING", "SUSPENDED", "TERMINATED"]:
+                    check_names.remove(check_name)
+                    if resp["status"] == "SUSPENDED":
+                        failed_names.append(check_name)
+            nfailed = len(failed_names)
+            ndoing  = len(check_names)
+            ndone   = nall - nfailed - ndoing
+            print("\rRUNNING: {0}, SUSPENDED: {1}, PROVISIONING: {2} (waiting second: {3}s)".format(ndone, nfailed, ndoing, wait_second), end="")
+            time.sleep(1)
+            wait_second += 1
+        print("\rRUNNING: {0}, SUSPENDED: {1} (waited second: {2}s)\n".format(ndone, nfailed, wait_second), end="")
 
     def delete_instance(self, zone, names, tag=None):
 
         if isinstance(names, str):
             names = [names]
 
+        batch = BatchHttpRequest()
         instances = self._ceservice.instances()
         for name in names:
-            batch.add(instances.insert(project=self._project_id, zone=zone, instance=instance_id))
+            req = instances.delete(project=self._project_id,
+                                   zone=zone, instance=name)
+            batch.add(req)
         resp = batch.execute()
 
         #req = instances.delete(project=self._project_id,
@@ -130,11 +173,54 @@ class Client(ClientBase):
         #                       instance=instance_id)
         #resp = req.execute()
 
-    def stop_instance(self, names=None):
-        pass
+    def stop_instance(self, names, zone=None):
 
-    def start_instance(self, names=None):
-        pass
+        if zone is None:
+            zone = self.get_instance_metadata("zone")
+
+        if isinstance(names, str):
+            names = [names]
+
+        instances = self._ceservice.instances()
+        if len(names) == 1:
+            req = instances.stop(project=self._project_id,
+                                 zone=zone,
+                                 instance=names[0])
+            resp = req.execute()
+        elif len(names) > 1:
+            for name in names:
+                req = instances.stop(project=self._project_id,
+                                     zone=zone,
+                                     instance=name)
+                batch.add(req)
+            resp = batch.execute()
+        else:
+            raise Exception("instance name must not be vacant!")
+
+    def start_instance(self, names=None, zone=None):
+
+        if zone is None:
+            zone = self.get_instance_metadata("zone")
+
+        if isinstance(names, str):
+            names = [names]
+
+        instances = self._ceservice.instances()
+        if len(names) == 1:
+            req = instances.start(project=self._project_id,
+                                  zone=zone,
+                                  instance=names[0])
+            resp = req.execute()
+        elif len(names) > 1:
+            for name in names:
+                req = instances.insert(project=self._project_id,
+                                       zone=zone,
+                                       instance=name)
+                batch.add(req)
+            resp = batch.execute()
+        else:
+            raise Exception("instance name must not be vacant!")
+
 
     def create_disk(self, zone, sdisk, name, block=True):
 
@@ -165,37 +251,42 @@ class Client(ClientBase):
 
         return resp
 
-    def create_disks(self, zone, snapshot, names, block=True):
+    def create_disks(self, names, snapshot, zone=None):
+
+        if snapshot.startswith("global"):
+            snapshot = "projects/{0}/{1}".format(self._project_id, snapshot)
+        elif not snapshot.startswith("projects"):
+            snapshot = "projects/{0}/global/snapshots/{1}".format(self._project_id, snapshot)
+
+        if zone is None:
+            zone = self.get_instance_metadata("zone")
 
         config = {
-            "sourceSnapshot": "global/snapshots/{0}".format(snapshot)
+            "sourceSnapshot": snapshot
         }
 
         if isinstance(names, str):
             names = [names]
 
+        def check_exception(request_id, response, exception):
+            if exception is not None:
+                raise Exception(exception)
+
         #batch = BatchHttpRequest()
-        self._ceservice = super(Client, self)._build_service(Client.__ENDPOINT_GCE,
-                                                             Client.__API_NAME,
-                                                             Client.__API_VERSION)
-        batch = self._ceservice.new_batch_http_request()
+        batch = self._ceservice.new_batch_http_request(callback=check_exception)
         disks = self._ceservice.disks()
         for name in names:
             body = config.copy()
             body.update({"name": name})
-            job = disks.insert(project=self._project_id, zone=zone, body=config)
+            job = disks.insert(project=self._project_id, zone=zone, body=body)
             batch.add(job)
-        resp = batch.execute()
-        print(resp)
+        self._try_batch_execute(batch)
 
-        if not block:
-            return resp
-
-        check_names = names.copy()
+        check_names = list(names)
         nall = len(check_names)
         failed_names = []
         wait_second = 0
-        while not check_names:
+        while check_names:
             for check_name in check_names:
                 resp = disks.get(project=self._project_id, zone=zone, disk=check_name).execute()
                 if resp["status"] in ["DONE","FAILED","READY"]:
@@ -205,8 +296,10 @@ class Client(ClientBase):
             nfailed = len(failed_names)
             ndoing  = len(check_names)
             ndone   = nall - nfailed - ndoing
-            print("\rDONE: {0}, FAILED: {1}, DOING: {2}".format(ndone, nfailed, ndoing), end="")
+            print("\rDONE: {0}, FAILED: {1}, DOING: {2} (waiting second: {3}s)".format(ndone, nfailed, ndoing, wait_second), end="")
             time.sleep(1)
+            wait_second += 1
+        print("\rDONE: {0}, FAILED: {1} (waited second: {2}s)\n".format(ndone, nfailed, wait_second), end="")
 
     def delete_disk(self):
 
