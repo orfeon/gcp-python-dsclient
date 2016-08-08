@@ -1,4 +1,5 @@
 from __future__ import print_function
+import os
 import sys
 import time
 import requests
@@ -56,8 +57,9 @@ class Client(ClientBase):
 
     def stop_current_instance(self):
         current_instance = self.get_current_instance()
-        self.stop_instance(current_instance["name"], current_instance["zone"])
-
+        name = current_instance["name"]
+        zone = current_instance["zone"].split("/")[-1]
+        self.stop_instance(name, zone)
 
     def get_instance(self, zone, name):
         req = self._ceservice.instances().get(project=self._project_id,
@@ -67,9 +69,9 @@ class Client(ClientBase):
         return resp
 
     def create_instance(self, names, mtype,
-                        sdisks=None, simage=None, disksizegb=10,
+                        disks=None, image=None, sizegb=10,
                         zone=None, network=None,
-                        preemptible=False, config={}):
+                        preemptible=False, metadata=None, config={}):
 
         if zone is None or network is None:
             current_instance = self.get_current_instance()
@@ -88,7 +90,11 @@ class Client(ClientBase):
             ],
             'networkInterfaces': [
                 {
-                    "network": network
+                    "network": network,
+                    "accessConfigs": [{
+                        "type": "ONE_TO_ONE_NAT",
+                        "name": "External NAT"
+                    }]
                 }
             ],
             'scheduling': {
@@ -99,10 +105,14 @@ class Client(ClientBase):
                 'scopes': ["https://www.googleapis.com/auth/cloud-platform"]
             }]
         }
+
+        if metadata is not None:
+            init_config["metadata"] = metadata
+
         init_config.update(config)
 
-        if simage is None and sdisks is None:
-            raise Exception("You must input simage or sdisks!")
+        if image is None and disks is None:
+            raise Exception("You must input image or disks!")
 
         if isinstance(names, str):
             names = [names]
@@ -115,19 +125,19 @@ class Client(ClientBase):
         batch = self._ceservice.new_batch_http_request(callback=check_exception)
         instances = self._ceservice.instances()
 
-        if sdisks is not None:
-            if isinstance(sdisks, str):
-                sdisks = [sdisks]
-            if len(names) != len(sdisks):
-                raise Exception("instance num({0}) must be equal to sdisks num({1})!".format(len(names), len(sdisks)))
-            for name, sdisk in zip(names, sdisks):
+        if disks is not None:
+            if isinstance(disks, str):
+                disks = [disks]
+            if len(names) != len(disks):
+                raise Exception("instance num({0}) must be equal to disks num({1})!".format(len(names), len(disks)))
+            for name, disk in zip(names, disks):
                 body = init_config.copy()
                 body.update({"name": name})
-                body["disks"][0]["source"] = "zones/{0}/disks/{1}".format(zone, sdisk)
+                body["disks"][0]["source"] = "zones/{0}/disks/{1}".format(zone, disk)
                 req = instances.insert(project="stage-orfeon", zone=zone, body=body)
                 batch.add(req)
-        elif simage is not None:
-            init_config["disks"][0]["initializeParams"] = {'diskSizeGb': disksizegb, 'sourceImage': simage}
+        elif image is not None:
+            init_config["disks"][0]["initializeParams"] = {'diskSizeGb': sizegb, 'sourceImage': image}
             for name in names:
                 body = init_config.copy()
                 body.update({"name": name})
@@ -222,11 +232,11 @@ class Client(ClientBase):
             raise Exception("instance name must not be vacant!")
 
 
-    def create_disk(self, zone, sdisk, name, block=True):
+    def create_disk(self, zone, disk, name, block=True):
 
         config = {
             "name": name,
-            "sourceSnapshot": "global/snapshots/{0}".format(sdisk)
+            "sourceSnapshot": "global/snapshots/{0}".format(disk)
         }
         disks = self._ceservice.disks()
         req = disks.insert(project=self._project_id, zone=zone, body=config)
@@ -272,7 +282,6 @@ class Client(ClientBase):
             if exception is not None:
                 raise Exception(exception)
 
-        #batch = BatchHttpRequest()
         batch = self._ceservice.new_batch_http_request(callback=check_exception)
         disks = self._ceservice.disks()
         for name in names:
@@ -385,24 +394,75 @@ class Client(ClientBase):
                                          snapshot=snapshot_name)
         resp = self._try_execute(req)
 
-    def deploy_ipcluster(self, name, core=1, itype="normal", num=1,
-                         icore=None, preemptible=False, disksize=None,
-                         image=None, zone=None, mtype=None, config=None):
+    def deploy_ipcluster(self, profile, itype="standard", core=1, num=1, icore=None,
+                         image=None, sizegb=10, snapshot=None, preemptible=False,
+                         zone=None, network=None, mtype=None, config=None):
 
-        if image is None:
-            zone    = self.get_instance_metadata("zone")
-            disk    = self.get_instance_metadata("disks/0/device-name")
-            network = self.get_instance_metadata("network-interfaces/0/network")
-
-            snapshot = self.create_snapshot(zone, disk, name)
-
+        # create disks for instances.
         current_instance = self.get_current_instance()
-        if icore is None:
-            icore = core
-        if image is None:
-            image = current_instance[""]
+        if zone is None:
+            zone = current_instance["zone"].split("/")[-1]
+        if network is None:
+            network = current_instance["networkInterfaces"][0]["network"]
+        if mtype is None:
+            if itype == "micro" or itype == "small":
+                prefix = "f1" if itype == "micro" else "g1"
+                mtype = "{0}-{1}".format(prefix, itype)
+            else:
+                mtype = "n1-{0}-{1}".format(itype, core)
 
-    def aaaa():
-        from ipyparallel.apps.ipclusterapp import launch_new_instance
-        sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
-        sys.exit(launch_new_instance())
+        # create disks from snapshot.
+        if snapshot is None and image is None:
+            disk = self.get_instance_metadata("disks/0/device-name")
+            snapshot = "{0}-{1}-{2}".format(os.uname()[1], os.getpid(), int(time.time()))
+            self.create_snapshot(zone, disk, snapshot)
+
+        names = ["ipcluster-{0}-{1}".format(profile, no) for no in range(num)]
+        if snapshot is not None:
+            disks = names
+            self.create_disks(disks, snapshot, zone=zone)
+
+        # start ipcontroller on current instance.
+        profile_dir = os.path.expanduser('~/.ipython/profile_{0}'.format(profile))
+        if not os.path.isdir(profile_dir):
+            command = 'ipython profile create --parallel --profile={0}'.format(profile)
+            ret = os.system(command)
+            if ret != 0:
+                raise Exception("")
+
+        network_ip = current_instance["networkInterfaces"][0]["networkIP"]
+        command = "ipcontroller start --profile {0} --ip {1} &".format(profile, network_ip)
+        ret = os.system(command)
+        if ret != 0:
+            raise Exception("")
+
+        retry = 30
+        engine_file_path = profile_dir + "/security/ipcontroller-engine.json"
+        while not os.path.isfile(engine_file_path):
+            time.sleep(1)
+            retry -= 1
+            if retry < 0:
+                raise Exception("No config file: {0}".format(engine_file_path))
+
+        # create ipcontroller-engine.json for ipengine hosts.
+        with open(engine_file_path, "r") as engine_file:
+            engine_file_content = engine_file.read()
+
+        startup_script = """
+#! /bin/bash
+
+mkdir -p ~/.ipython/profile_{0}/security
+cat <<EOF > ~/.ipython/profile_{0}/security/ipcontroller-engine.json
+{1}
+EOF
+ipcluster engines --profile {0} -n {2}
+        """.format(profile, engine_file_content, core if icore is None else icore)
+
+        # create instances for ipengines.
+        metadata = {"items": [{"key": "startup-script", "value": startup_script}]}
+        if snapshot is not None:
+            self.create_instance(names=names, mtype=mtype, disks=disks,
+                                 zone=zone, network=network, metadata=metadata, preemptible=preemptible)
+        else:
+            self.create_instance(names=names, mtype=mtype, image=image, sizegb=sizegb,
+                                 zone=zone, network=network, metadata=metadata, preemptible=preemptible)
