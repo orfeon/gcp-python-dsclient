@@ -2,6 +2,7 @@ import httplib2
 from oauth2client.client import GoogleCredentials
 from oauth2client.service_account import ServiceAccountCredentials
 from apiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 
 class ClientBase(object):
@@ -41,3 +42,21 @@ class ClientBase(object):
             auth_http = credentials.authorize(http)
             service = build(api_name, api_version, http=auth_http)
             return credentials, service
+
+    def _try_execute(self, req, retry=3):
+
+        while True:
+            try:
+                resp = req.execute()
+                return resp
+            except HttpError as e:
+                if e.resp.status >= 500:
+                    retry -= 1
+                    if retry <= 0:
+                        raise
+                    continue
+                raise
+            except:
+                retry -= 1
+                if retry <= 0:
+                    raise

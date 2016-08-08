@@ -93,9 +93,10 @@ class Client(ClientBase):
         while retry_count > 0 and not resp["jobComplete"]:
             retry_count -= 1
             time.sleep(3)
-            resp = jobs.getQueryResults(projectId=self._project_id,
-                                                  jobId=job_id,
-                                                  timeoutMs=200000).execute()
+            req = jobs.getQueryResults(projectId=self._project_id,
+                                       jobId=job_id,
+                                       timeoutMs=200000)
+            resp = self._try_execute(req)
             _check_resperror(resp)
 
         schema = Schema(resp["schema"])
@@ -107,10 +108,11 @@ class Client(ClientBase):
         current_row_size = len(df)
         while current_row_size < int(resp["totalRows"]):
             page_token = resp.get('pageToken', None)
-            resp = jobs.getQueryResults(projectId=self._project_id,
-                                        jobId=job_id,
-                                        pageToken=page_token,
-                                        timeoutMs=100000).execute()
+            req = jobs.getQueryResults(projectId=self._project_id,
+                                       jobId=job_id,
+                                       pageToken=page_token,
+                                       timeoutMs=100000)
+            resp = self._try_execute(req)
             _check_resperror(resp)
             df = schema.to_dataframe(resp["rows"])
             df_list.append(df)
@@ -145,14 +147,15 @@ class Client(ClientBase):
                }}
 
         jobs = self._bqservice.jobs()
-        job = jobs.insert(projectId=self._project_id, body=body).execute()
+        req = jobs.insert(projectId=self._project_id, body=body)
+        resp = self._try_execute(req)
 
         if not block:
-            return job["jobReference"]["jobId"]
+            return resp["jobReference"]["jobId"]
 
-        job = self._wait_job(job)
+        resp = self._wait_job(resp)
 
-        return job
+        return resp
 
     def load(self, df, table_name, append=True, block=True, job_id=None,
              write_disposition=None, create_disposition="CREATE_IF_NEEDED"):
@@ -211,18 +214,19 @@ class Client(ClientBase):
         df.to_csv(buf, index=False)
 
         jobs = self._bqservice.jobs()
-        job = jobs.insert(projectId=self._project_id,
+        req = jobs.insert(projectId=self._project_id,
                           body=body,
                           media_body=MediaInMemoryUpload(buf.getvalue(),
                                                          mimetype='application/octet-stream',
-                                                         resumable=True)).execute()
+                                                         resumable=True))
+        resp = self._try_execute(req)
 
         if not block:
-            return job["jobReference"]["jobId"]
+            return resp["jobReference"]["jobId"]
 
-        job = self._wait_job(job)
+        resp = self._wait_job(resp)
 
-        return job
+        return resp
 
     def extract(self, table_name, uri, block=True):
 
@@ -243,13 +247,15 @@ class Client(ClientBase):
                     }
                }}
         jobs = self._bqservice.jobs()
-        job = jobs.insert(projectId=self._project_id, body=body).execute()
-        self._check_joberror(job)
+        req = jobs.insert(projectId=self._project_id, body=body)
+        resp = self._try_execute(req)
+
+        self._check_joberror(resp)
 
         if not block:
-            return job["jobReference"]["jobId"]
+            return resp["jobReference"]["jobId"]
 
-        self._wait_job(job)
+        self._wait_job(resp)
 
         table = self.get_table(table_name)
         return table
@@ -257,36 +263,38 @@ class Client(ClientBase):
     def cancel(self, job_id):
 
         jobs = self._bqservice.jobs()
-        job = jobs.cancel(projectId=self._project_id, jobId=job_id).execute()
-        return job
+        req = jobs.cancel(projectId=self._project_id, jobId=job_id)
+        resp = self._try_execute(req)
+        return resp
 
     def get_dataset(self, dataset_id):
 
         datasets = self._bqservice.datasets()
         try:
-            dataset = datasets.get(projectId=self._project_id,
-                                   datasetId=dataset_id).execute()
+            req = datasets.get(projectId=self._project_id, datasetId=dataset_id)
+            resp = self._try_execute(req)
         except HttpError as e:
             if e.resp.status == 404:
                 return None
             raise
 
-        return dataset
+        return resp
 
     def list_dataset(self, all=None, page_token=None, max_results=None):
 
         datasets = self._bqservice.datasets()
         try:
-            dataset_list = datasets.list(projectId=self._project_id,
-                                         all=all,
-                                         pageToken=page_token,
-                                         maxResults=max_results).execute()
+            req = datasets.list(projectId=self._project_id,
+                                all=all,
+                                pageToken=page_token,
+                                maxResults=max_results)
+            resp = self._try_execute(req)
         except HttpError as e:
             if e.resp.status == 404:
                 return []
             raise
 
-        return dataset_list
+        return resp
 
     def create_dataset(self, dataset_id, location=None, expiration_ms=None):
 
@@ -303,40 +311,44 @@ class Client(ClientBase):
             body["defaultTableExpirationMs"] = expiration_ms
 
         datasets = self._bqservice.datasets()
-        dataset = datasets.insert(projectId=self._project_id,
-                                  body=body).execute()
-        return dataset
+        req = datasets.insert(projectId=self._project_id,
+                              body=body)
+        resp = self._try_execute(req)
+        return resp
 
     def delete_dataset(self, dataset_id, delete_contents=False):
 
         datasets = self._bqservice.datasets()
-        datasets.delete(projectId=self._project_id,
-                        datasetId=dataset_id,
-                        deleteContents=delete_contents).execute()
+        req = datasets.delete(projectId=self._project_id,
+                              datasetId=dataset_id,
+                              deleteContents=delete_contents)
+        resp = self._try_execute(req)
 
     def get_table(self, table_name):
 
         dataset_id, table_id = self._parse_table_name(table_name)
         tables = self._bqservice.tables()
         try:
-            table = tables.get(projectId=self._project_id,
-                               datasetId=dataset_id,
-                               tableId=table_id).execute()
+            req = tables.get(projectId=self._project_id,
+                             datasetId=dataset_id,
+                             tableId=table_id)
+            resp = self._try_execute(req)
         except HttpError as e:
             if e.resp.status == 404:
                 return None
             raise
 
-        return table
+        return resp
 
     def list_table(self, dataset_id, page_token=None, max_results=None):
 
         tables = self._bqservice.tables()
-        table_list = tables.list(projectId=self._project_id,
-                                 datasetId=dataset_id,
-                                 pageToken=page_token,
-                                 maxResults=max_results).execute()
-        return table_list
+        req = tables.list(projectId=self._project_id,
+                          datasetId=dataset_id,
+                          pageToken=page_token,
+                          maxResults=max_results)
+        resp = self._try_execute(req)
+        return resp
 
     def create_table(self, table_name, body):
         """
@@ -357,34 +369,38 @@ class Client(ClientBase):
 
         dataset_id, table_id = self._parse_table_name(table_name)
         tables = self._bqservice.tables()
-        table = tables.insert(projectId=self._project_id,
-                              datasetId=dataset_id,
-                              tableId=table_id,
-                              body=body).execute()
-        return table
+        req = tables.insert(projectId=self._project_id,
+                            datasetId=dataset_id,
+                            tableId=table_id,
+                            body=body)
+        resp = self._try_execute(req)
+        return resp
 
     def delete_table(self, table_name):
 
         dataset_id, table_id = self._parse_table_name(table_name)
         tables = self._bqservice.tables()
-        tables.delete(projectId=self._project_id,
-                      datasetId=dataset_id,
-                      tableId=table_id).execute()
+        req = tables.delete(projectId=self._project_id,
+                            datasetId=dataset_id,
+                            tableId=table_id)
+        resp = self._try_execute(req)
 
     def patch_table(self, table_name, body):
 
         dataset_id, table_id = self._parse_table_name(table_name)
         tables = self._bqservice.tables()
-        resp = tables.patch(projectId=self._project_id,
-                            datasetId=dataset_id,
-                            tableId=table_id,
-                            body=body).execute()
+        req = tables.patch(projectId=self._project_id,
+                           datasetId=dataset_id,
+                           tableId=table_id,
+                           body=body)
+        resp = self._try_execute(req)
         return resp
 
     def show_jobs(self):
 
         jobs = self._bqservice.jobs()
-        resp = jobs.list(projectId=self._project_id).execute()
+        req = jobs.list(projectId=self._project_id)
+        resp = self._try_execute(req)
         job_list = []
         for json_job in resp["jobs"]:
             job = self._job2series(json_job)
@@ -394,7 +410,8 @@ class Client(ClientBase):
     def show_job(self, job_id):
 
         jobs = self._bqservice.jobs()
-        resp = jobs.get(projectId=self._project_id, jobId=job_id).execute()
+        req = jobs.get(projectId=self._project_id, jobId=job_id)
+        resp = self._try_execute(req)
         job = self._job2series(resp)
         print(resp)
         print(job)

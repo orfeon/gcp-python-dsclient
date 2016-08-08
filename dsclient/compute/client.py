@@ -63,7 +63,7 @@ class Client(ClientBase):
         req = self._ceservice.instances().get(project=self._project_id,
                                               zone=zone,
                                               instance=name)
-        resp = req.execute()
+        resp = self._try_execute(req)
         return resp
 
     def create_instance(self, names, mtype,
@@ -166,7 +166,7 @@ class Client(ClientBase):
             req = instances.delete(project=self._project_id,
                                    zone=zone, instance=name)
             batch.add(req)
-        resp = batch.execute()
+        self._try_batch_execute(batch)
 
         #req = instances.delete(project=self._project_id,
         #                       zone=zone,
@@ -186,14 +186,14 @@ class Client(ClientBase):
             req = instances.stop(project=self._project_id,
                                  zone=zone,
                                  instance=names[0])
-            resp = req.execute()
+            resp = self._try_execute(req)
         elif len(names) > 1:
             for name in names:
                 req = instances.stop(project=self._project_id,
                                      zone=zone,
                                      instance=name)
                 batch.add(req)
-            resp = batch.execute()
+            self._try_batch_execute(batch)
         else:
             raise Exception("instance name must not be vacant!")
 
@@ -210,14 +210,14 @@ class Client(ClientBase):
             req = instances.start(project=self._project_id,
                                   zone=zone,
                                   instance=names[0])
-            resp = req.execute()
+            resp = self._try_execute(req)
         elif len(names) > 1:
             for name in names:
                 req = instances.insert(project=self._project_id,
                                        zone=zone,
                                        instance=name)
                 batch.add(req)
-            resp = batch.execute()
+            self._try_batch_execute(batch)
         else:
             raise Exception("instance name must not be vacant!")
 
@@ -230,7 +230,7 @@ class Client(ClientBase):
         }
         disks = self._ceservice.disks()
         req = disks.insert(project=self._project_id, zone=zone, body=config)
-        resp = req.execute()
+        resp = self._try_execute(req)
         if 'error' in resp:
             raise Exception(resp['error'])
 
@@ -301,13 +301,11 @@ class Client(ClientBase):
             wait_second += 1
         print("\rDONE: {0}, FAILED: {1} (waited second: {2}s)\n".format(ndone, nfailed, wait_second), end="")
 
-    def delete_disk(self):
+    def delete_disk(self, zone, disk):
 
-        config = {
-            "sourceSnapshot": "projects/{0}/global/snapshots/{1}".format(self._project_id, name)
-        }
         disks = self._ceservice.disks()
-        req = disks.insert(project=self._project_id, body=config)
+        req = disks.delete(project=self._project_id, zone=zone, disk=disk)
+        resp = self._try_execute(req)
 
     def resize_disk(self, zone, disk, sizeGb):
 
@@ -316,19 +314,19 @@ class Client(ClientBase):
         }
         disks = self._ceservice.disks()
         req = disks.resize(project=self._project_id, zone=zone, disk=disk, body=config)
-        resp = req.execute()
+        resp = self._try_execute(req)
 
     def create_image(self, disk, image_name, block=True):
 
         config = {
             "name": image_name,
             "rawDisk": {
-                "source": "https://www.googleapis.com/compute/v1/projects/stage-orfeon/global/snapshots/myjupyter4"
+                "source": "https://www.googleapis.com/compute/v1/projects/{0}/global/snapshots/{1}".format(self._project_id, snapshot_name)
             }
         }
         images = self._ceservice.images()
         req = images.insert(project=self._project_id, body=config)
-        resp = req.execute()
+        resp = self._try_execute(req)
 
         if not block:
             return resp
@@ -351,7 +349,7 @@ class Client(ClientBase):
 
         images = self._ceservice.images()
         req = images.delete(project=self._project_id, image=image_name)
-        resp = req.execute()
+        resp = self._try_execute(req)
 
     def create_snapshot(self, zone, disk, snapshot_name, block=True):
 
@@ -362,7 +360,7 @@ class Client(ClientBase):
         req = disks.createSnapshot(project=self._project_id,
                                    zone=zone, disk=disk,
                                    body=config)
-        resp = req.execute()
+        resp = self._try_execute(req)
 
         if not block:
             return resp
@@ -385,7 +383,7 @@ class Client(ClientBase):
     def delete_snapshot(self, snapshot_name):
         req = service.snapshots().delete(project=self._project_id,
                                          snapshot=snapshot_name)
-        resp = req.execute()
+        resp = self._try_execute(req)
 
     def deploy_ipcluster(self, name, core=1, itype="normal", num=1,
                          icore=None, preemptible=False, disksize=None,
@@ -403,3 +401,8 @@ class Client(ClientBase):
             icore = core
         if image is None:
             image = current_instance[""]
+
+    def aaaa():
+        from ipyparallel.apps.ipclusterapp import launch_new_instance
+        sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
+        sys.exit(launch_new_instance())

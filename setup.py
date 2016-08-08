@@ -11,8 +11,9 @@ with open(os.path.join(here, 'README.rst')) as f:
 install_requires = [
     'pandas>=0.18',
     'google-api-python-client>=1.5',
-    'httplib2 >= 0.9.1',
-    'oauth2client >= 2.0.1',
+    'httplib2>=0.9.1',
+    'oauth2client>=2.0.1',
+    'ipyparallel>=5.1',
 ]
 
 setup(

@@ -29,6 +29,7 @@ class Client(ClientBase):
         bucket, obj = path.split("/", 1)
         return bucket, obj
 
+    """
     def _try_execute(self, req, retry=3):
 
         while retry > 0:
@@ -40,13 +41,14 @@ class Client(ClientBase):
                     retry -= 1
                     continue
                 raise
+    """
 
     def read_csv(self, uri, sep=",", header="infer"):
 
         bucket, file_path = self._parse_uri(uri)
         objects = self._gsservice.objects()
         req = objects.get_media(bucket=bucket, object=file_path)
-        resp = req.execute()
+        resp = self._try_execute(req)
         df = pd.read_csv(BytesIO(resp), sep=sep, header=header)
         return df
 
@@ -109,20 +111,22 @@ class Client(ClientBase):
     def get_bucket(self, bucket):
 
         buckets = self._gsservice.buckets()
+        req = buckets.get(bucket=bucket)
         try:
-            bucket_ = buckets.get(bucket=bucket).execute()
+            resp = self._try_execute(req)
         except HttpError as e:
             if e.resp.status == 404:
                 return None
             raise
 
-        return bucket_
+        return resp
 
     def list_bucket(self, projection=None, pageToken=None, prefix=None, maxResults=None):
 
         buckets = self._gsservice.buckets()
-        bucket_list = buckets.list(project=self._project_id).execute()
-        return bucket_list
+        req = buckets.list(project=self._project_id)
+        resp = self._try_execute(req)
+        return resp
 
     def create_bucket(self, bucket, location=None, storage_class=None, projection=None, retry=3):
 

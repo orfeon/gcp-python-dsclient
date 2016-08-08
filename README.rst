@@ -30,15 +30,15 @@ Initialize Client instance
 
 .. code:: python
 
-    from dsclient import gcp
+    import dsclient
 
     # When run on GCE instance that has GCP access permission,
     # you need to set only project name.
-    client = gcp.Client("your project name")
+    client = dsclient.Client("your project name")
 
     # In other case (ex: run on local PC),
-    # you need to set project name, service email, and access key file path.
-    client = gcp.Client("your project name", "xxxxxxx@gmail.com", "./keyfile.p12")
+    # you need to set project name, and access key file path.
+    client = dsclient.Client("your project name", "./keyfile.json")
 
 Usage Google BigQuery
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
