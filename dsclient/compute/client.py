@@ -70,8 +70,8 @@ class Client(ClientBase):
 
     def create_instance(self, names, mtype,
                         disks=None, image=None, sizegb=10,
-                        zone=None, network=None,
-                        preemptible=False, metadata=None, config={}):
+                        zone=None, network=None, external_ip=False,
+                        preemptible=False, metadata=None, tags=None, config={}):
 
         if zone is None or network is None:
             current_instance = self.get_current_instance()
@@ -90,11 +90,7 @@ class Client(ClientBase):
             ],
             'networkInterfaces': [
                 {
-                    "network": network,
-                    "accessConfigs": [{
-                        "type": "ONE_TO_ONE_NAT",
-                        "name": "External NAT"
-                    }]
+                    "network": network
                 }
             ],
             'scheduling': {
@@ -106,6 +102,9 @@ class Client(ClientBase):
             }]
         }
 
+        if external_ip:
+            access_configs = [{"type": "ONE_TO_ONE_NAT", "name": "External NAT"}]
+            init_config["networkInterfaces"][0]["accessConfigs"] = access_configs
         if metadata is not None:
             init_config["metadata"] = metadata
 
@@ -398,7 +397,18 @@ class Client(ClientBase):
                          image=None, sizegb=10, snapshot=None, preemptible=False,
                          zone=None, network=None, mtype=None, config=None):
 
-        # create disks for instances.
+        # check existing profile
+        profile_dir = os.path.expanduser('~/.ipython/profile_{0}'.format(profile))
+        if os.path.isdir(profile_dir):
+            command = 'ipcluster stop --profile={0}'.format(profile)
+            ret = os.system(command)
+        else:
+            command = 'ipython profile create --parallel --profile={0}'.format(profile)
+            ret = os.system(command)
+            if ret != 0:
+                raise Exception("Failed to create profile {0}".format(profile))
+
+        # check params and input default value.
         current_instance = self.get_current_instance()
         if zone is None:
             zone = current_instance["zone"].split("/")[-1]
@@ -419,22 +429,14 @@ class Client(ClientBase):
 
         names = ["ipcluster-{0}-{1}".format(profile, no) for no in range(num)]
         if snapshot is not None:
-            disks = names
-            self.create_disks(disks, snapshot, zone=zone)
+            self.create_disks(names, snapshot, zone=zone)
 
         # start ipcontroller on current instance.
-        profile_dir = os.path.expanduser('~/.ipython/profile_{0}'.format(profile))
-        if not os.path.isdir(profile_dir):
-            command = 'ipython profile create --parallel --profile={0}'.format(profile)
-            ret = os.system(command)
-            if ret != 0:
-                raise Exception("")
-
         network_ip = current_instance["networkInterfaces"][0]["networkIP"]
         command = "ipcontroller start --profile {0} --ip {1} &".format(profile, network_ip)
         ret = os.system(command)
         if ret != 0:
-            raise Exception("")
+            raise Exception("Failed to start ipcontroller on this host!")
 
         retry = 30
         engine_file_path = profile_dir + "/security/ipcontroller-engine.json"
@@ -442,7 +444,7 @@ class Client(ClientBase):
             time.sleep(1)
             retry -= 1
             if retry < 0:
-                raise Exception("No config file: {0}".format(engine_file_path))
+                raise Exception("Failed to create engine file: {0}".format(engine_file_path))
 
         # create ipcontroller-engine.json for ipengine hosts.
         with open(engine_file_path, "r") as engine_file:
@@ -451,18 +453,29 @@ class Client(ClientBase):
         startup_script = """
 #! /bin/bash
 
-mkdir -p ~/.ipython/profile_{0}/security
+#mkdir -p ~/.ipython/profile_{0}/security
+ipython profile create {0}
 cat <<EOF > ~/.ipython/profile_{0}/security/ipcontroller-engine.json
 {1}
 EOF
-ipcluster engines --profile {0} -n {2}
+ipcluster engines --profile {0} -n {2} --daemonize
         """.format(profile, engine_file_content, core if icore is None else icore)
 
         # create instances for ipengines.
         metadata = {"items": [{"key": "startup-script", "value": startup_script}]}
         if snapshot is not None:
-            self.create_instance(names=names, mtype=mtype, disks=disks,
+            self.create_instance(names=names, mtype=mtype, disks=names,
                                  zone=zone, network=network, metadata=metadata, preemptible=preemptible)
         else:
             self.create_instance(names=names, mtype=mtype, image=image, sizegb=sizegb,
                                  zone=zone, network=network, metadata=metadata, preemptible=preemptible)
+
+    def delete_ipcluster(self, profile):
+
+        pass
+
+    def add_ipengine(self, profile, itype="standard", core=1, num=1, icore=None,
+                     image=None, sizegb=10, snapshot=None, preemptible=False,
+                     mtype=None, config=None):
+
+        pass
