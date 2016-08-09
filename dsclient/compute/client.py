@@ -35,6 +35,7 @@ class Client(ClientBase):
                 self._cecredentials.refresh(Http())
                 retry -= 1
 
+    @staticmethod
     def _check_exception(request_id, response, exception):
         if exception is not None:
             raise Exception(exception)
@@ -129,7 +130,7 @@ class Client(ClientBase):
                 raise Exception(exception)
 
         #batch = BatchHttpRequest()
-        batch = self._ceservice.new_batch_http_request(callback=_check_exception)
+        batch = self._ceservice.new_batch_http_request(callback=Client._check_exception)
         instances = self._ceservice.instances()
 
         if disks is not None:
@@ -167,17 +168,17 @@ class Client(ClientBase):
             nfailed = len(failed_names)
             ndoing  = len(check_names)
             ndone   = nall - nfailed - ndoing
-            print("\r[CREATE INSTANCE] RUNNING: {0}, SUSPENDED: {1}, PROVISIONING: {2} (waiting {3}sec)".format(ndone, nfailed, ndoing, wait_second), end="")
+            print("\r[CREATE INSTANCE] RUNNING: {0}, SUSPENDED: {1}, PROVISIONING: {2} (waiting {3}s)".format(ndone, nfailed, ndoing, wait_second), end="")
             time.sleep(1)
             wait_second += 1
-        print("\r[CREATE INSTANCE] RUNNING: {0}, SUSPENDED: {1} (waited {2}sec)\n".format(ndone, nfailed, wait_second), end="")
+        print("\r[CREATE INSTANCE] RUNNING: {0}, SUSPENDED: {1} (waited {2}s)\n".format(ndone, nfailed, wait_second), end="")
 
     def delete_instance(self, zone, names, tag=None):
 
         if isinstance(names, str):
             names = [names]
 
-        batch = self._ceservice.new_batch_http_request(callback=_check_exception)
+        batch = self._ceservice.new_batch_http_request(callback=Client._check_exception)
         instances = self._ceservice.instances()
         for name in names:
             req = instances.delete(project=self._project_id,
@@ -190,7 +191,7 @@ class Client(ClientBase):
         if isinstance(names, str):
             names = [names]
 
-        batch = self._ceservice.new_batch_http_request(callback=_check_exception)
+        batch = self._ceservice.new_batch_http_request(callback=Client._check_exception)
         instances = self._ceservice.instances()
         for name in names:
             req = instances.stop(project=self._project_id,
@@ -204,7 +205,7 @@ class Client(ClientBase):
         if isinstance(names, str):
             names = [names]
 
-        batch = self._ceservice.new_batch_http_request(callback=_check_exception)
+        batch = self._ceservice.new_batch_http_request(callback=Client._check_exception)
         instances = self._ceservice.instances()
         for name in names:
             req = instances.insert(project=self._project_id,
@@ -237,7 +238,7 @@ class Client(ClientBase):
             if exception is not None:
                 raise Exception(exception)
 
-        batch = self._ceservice.new_batch_http_request(callback=_check_exception)
+        batch = self._ceservice.new_batch_http_request(callback=Client._check_exception)
         disks = self._ceservice.disks()
         for name in names:
             body = config.copy()
@@ -260,10 +261,10 @@ class Client(ClientBase):
             nfailed = len(failed_names)
             ndoing  = len(check_names)
             ndone   = nall - nfailed - ndoing
-            print("\r[CREATE DISK] DONE: {0}, FAILED: {1}, DOING: {2} (waiting {3}sec)".format(ndone, nfailed, ndoing, wait_second), end="")
+            print("\r[CREATE DISK] DONE: {0}, FAILED: {1}, DOING: {2} (waiting {3}s)".format(ndone, nfailed, ndoing, wait_second), end="")
             time.sleep(1)
             wait_second += 1
-        print("\r[CREATE DISK] DONE: {0}, FAILED: {1} (waited {2}sec)\n".format(ndone, nfailed, wait_second), end="")
+        print("\r[CREATE DISK] DONE: {0}, FAILED: {1} (waited {2}s)\n".format(ndone, nfailed, wait_second), end="")
 
     def delete_disk(self, zone, disk):
 
@@ -326,19 +327,16 @@ class Client(ClientBase):
                                    body=config)
         resp = self._try_execute(req)
 
-        if not block:
-            return resp
-
         snapshots = self._ceservice.snapshots()
         wait_second = 0
         status = resp["status"]
         while status not in ["DONE", "FAILED", "READY"]:
-            print("\r[CREATE SNAPSHOT] {0} (waiting {1}sec)".format(status, wait_second), end="")
+            print("\r[CREATE SNAPSHOT] {0} (waiting {1}s)".format(status, wait_second), end="")
             time.sleep(1)
             wait_second += 1
             resp = snapshots.get(project=self._project_id, snapshot=name).execute()
             status = resp["status"]
-        print("\r[CREATE SNAPSHOT] {0} (waited {1}sec)\n".format(status, wait_second), end="")
+        print("\r[CREATE SNAPSHOT] {0} (waited {1}s)\n".format(status, wait_second), end="")
         if status == "FAILED":
             raise Exception("Failed to create snapshot from disk: {0}".format(disk))
 
@@ -367,6 +365,8 @@ class Client(ClientBase):
                 raise Exception("Failed to create profile {0}".format(profile))
 
         # check params and input default value.
+        if snapshot is not None and image is not None:
+            raise Exception("Both snapshot and image filled! chose one!")
         current_instance = self.get_current_instance()
         if zone is None:
             zone = current_instance["zone"].split("/")[-1]
@@ -376,18 +376,26 @@ class Client(ClientBase):
             if itype == "micro" or itype == "small":
                 prefix = "f1" if itype == "micro" else "g1"
                 mtype = "{0}-{1}".format(prefix, itype)
-            else:
+            elif itype in ["standard","highmem","highcpu"]:
+                if core not in [1,2,4,8,16,32]:
+                    raise Exception("core must be 1,2,4,8,16,32!")
                 mtype = "n1-{0}-{1}".format(itype, core)
+            else:
+                raise Exception("itype must be standard,highmem,highcpu,small,micro!")
 
         # create disks from snapshot.
+        create_temp_snapshot = False
         if snapshot is None and image is None:
             disk = self.get_instance_metadata("disks/0/device-name")
             snapshot = "{0}-{1}-{2}".format(os.uname()[1], os.getpid(), int(time.time()))
             self.create_snapshot(snapshot, zone, disk)
+            create_temp_snapshot = True
 
         names = ["ipcluster-{0}-{1}".format(profile, no) for no in range(num)]
         if snapshot is not None:
             self.create_disk(zone, names, snapshot=snapshot)
+            #if create_temp_snapshot:
+            #    self.delete_snapshot(snapshot)
 
         # start ipcontroller on current instance.
         network_ip = current_instance["networkInterfaces"][0]["networkIP"]
