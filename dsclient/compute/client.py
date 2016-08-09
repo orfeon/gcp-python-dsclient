@@ -37,8 +37,18 @@ class Client(ClientBase):
 
     @staticmethod
     def _check_exception(request_id, response, exception):
+
         if exception is not None:
             raise Exception(exception)
+
+    @staticmethod
+    def _clean_ipcontroller(profile):
+
+        c0 = "'{print $2}'`"
+        c1 = "kill -9 `ps -ef | grep 'ipcontroller start --profile {0}' | grep -v 'grep' |awk ".format(profile)
+        ret = os.system(c1 + c0)
+        ret = os.system("rm -f ~/.ipython/profile_{0}/pid/*".format(profile))
+        ret = os.system("rm -f ~/.ipython/profile_{0}/security/*".format(profile))
 
     def get_current_instance_metadata(self, param):
 
@@ -61,14 +71,15 @@ class Client(ClientBase):
         disk = self.get_current_instance_metadata("disks/0/device-name")
         return disk
 
+    def get_current_instance_network(self):
+
+        network = self.get_current_instance_metadata("disks/0/device-name")
+        return network
+
     def get_current_instance(self):
 
-        #instance_id = self.get_instance_metadata("id")
         name = self.get_current_instance_name()
         zone = self.get_current_instance_zone()
-        #tags        = self.get_instance_metadata("tags")
-        #return {"id": instance_id, "hostname": hostname, "zone": zone, "tags": tags}
-
         resp = self.get_instance(zone=zone, name=name)
         return resp
 
@@ -76,7 +87,7 @@ class Client(ClientBase):
 
         name = self.get_current_instance_name()
         zone = self.get_current_instance_zone()
-        self.stop_instance(name, zone)
+        self.stop_instance(zone, name)
 
     def create_current_snapshot(self, name):
 
@@ -85,16 +96,23 @@ class Client(ClientBase):
         self.create_snapshot(name, zone, disk)
 
     def get_instance(self, zone, name):
-        req = self._ceservice.instances().get(project=self._project_id,
-                                              zone=zone,
-                                              instance=name)
+
+        instances = self._ceservice.instances()
+        req = instances.get(project=self._project_id, zone=zone, instance=name)
+        resp = self._try_execute(req)
+        return resp
+
+    def list_instance(self, zone, filter_=None):
+
+        instances = self._ceservice.instances()
+        req = instances.list(project=self._project_id, zone=zone, filter=filter_)
         resp = self._try_execute(req)
         return resp
 
     def create_instance(self, zone, names,
                         mtype, disks=None, image=None, sizegb=10, preemptible=False,
                         network=None, external_ip=False,
-                        metadata=None, tags=None, config={}):
+                        metadata=None, labels=None, config={}):
 
         current_instance = self.get_current_instance()
         if network is None:
@@ -116,9 +134,6 @@ class Client(ClientBase):
             'scheduling': {
                 'preemptible': preemptible
             },
-            'tags': {
-                'items': []
-            },
             'serviceAccounts': [{
                 'email': 'default',
                 'scopes': ["https://www.googleapis.com/auth/cloud-platform"]
@@ -128,10 +143,10 @@ class Client(ClientBase):
         if external_ip:
             access_configs = [{"type": "ONE_TO_ONE_NAT", "name": "External NAT"}]
             init_config["networkInterfaces"][0]["accessConfigs"] = access_configs
-        if tags is not None:
-            if isinstance(tags, str):
-                tags = [tags]
-            init_config["tags"]["items"] = tags
+        if labels is not None:
+            if isinstance(labels, str):
+                labels = [labels]
+            init_config["labels"] = labels
         if metadata is not None:
             init_config["metadata"] = metadata
 
@@ -191,7 +206,7 @@ class Client(ClientBase):
             wait_second += 1
         print("\r[CREATE INSTANCE] RUNNING: {0}, SUSPENDED: {1} (waited {2}s)\n".format(ndone, nfailed, wait_second), end="")
 
-    def delete_instance(self, zone, names, tag=None):
+    def delete_instance(self, zone, names):
 
         if isinstance(names, str):
             names = [names]
@@ -358,6 +373,7 @@ class Client(ClientBase):
         return resp
 
     def delete_snapshot(self, name):
+
         snapshots = service.snapshots()
         req = snapshots.delete(project=self._project_id, snapshot=name)
         resp = self._try_execute(req)
@@ -369,11 +385,7 @@ class Client(ClientBase):
         # check existing profile
         profile_dir = os.path.expanduser('~/.ipython/profile_{0}'.format(profile))
         if os.path.isdir(profile_dir):
-            c0 = "'{print $2}'`"
-            c1 = "kill -9 `ps -ef | grep 'ipcontroller start --profile {0}' | grep -v 'grep' |awk ".format(profile)
-            ret = os.system(c1 + c0)
-            ret = os.system("rm -f ~/.ipython/profile_{0}/pid/*".format(profile))
-            ret = os.system("rm -f ~/.ipython/profile_{0}/security/*".format(profile))
+            Client._clean_ipcontroller(profile)
         else:
             ret = os.system('ipython profile create --parallel --profile={0}'.format(profile))
             if ret != 0:
@@ -447,16 +459,27 @@ ipcluster engines --profile {0} -n {2} --daemonize
 
         # create instances for ipengines.
         metadata = {"items": [{"key": "startup-script", "value": startup_script}]}
+        labels = {"ipcluster-profile": profile}
         if snapshot is not None:
-            self.create_instance(zone=zone, names=names, mtype=mtype, disks=names, external_ip=True,
-                                 network=network, metadata=metadata, preemptible=preemptible)
+            self.create_instance(zone=zone, names=names, mtype=mtype, disks=names,
+                                 external_ip=True, network=network, preemptible=preemptible,
+                                 metadata=metadata, labels=labels)
         else:
             self.create_instance(zone=zone, names=names, mtype=mtype, image=image, sizegb=sizegb,
-                                 network=network, metadata=metadata, preemptible=preemptible)
+                                 external_ip=True, network=network, preemptible=preemptible,
+                                 metadata=metadata, labels=labels)
 
     def delete_ipcluster(self, profile):
 
-        pass
+        zone = self.get_current_instance_zone()
+        filter_str = "ipcluster-profile eq {0}".format(profile)
+        instances = self.list_instance(zone, filter_str)
+        if len(instances["items"]) == 0:
+            print("No instance belong to profile: {0}".format(profile))
+            return
+        names = [instance["name"] for instance in instances["items"]]
+        self.delete_instance(zone, names)
+        Client._clean_ipcontroller(profile)
 
     def add_ipengine(self, profile, itype="standard", core=1, num=1, pnum=None,
                      image=None, sizegb=10, snapshot=None, preemptible=False,
