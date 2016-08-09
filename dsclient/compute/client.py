@@ -35,6 +35,10 @@ class Client(ClientBase):
                 self._cecredentials.refresh(Http())
                 retry -= 1
 
+    def _check_exception(request_id, response, exception):
+        if exception is not None:
+            raise Exception(exception)
+
     def get_instance_metadata(self, param):
 
         gh_url = 'http://metadata.google.internal/computeMetadata/{0}/instance/{1}'.format(Client.__API_VERSION, param)
@@ -68,17 +72,14 @@ class Client(ClientBase):
         resp = self._try_execute(req)
         return resp
 
-    def create_instance(self, names, mtype,
-                        disks=None, image=None, sizegb=10,
-                        zone=None, network=None, external_ip=False,
-                        preemptible=False, metadata=None, tags=None, config={}):
+    def create_instance(self, zone, names,
+                        mtype, disks=None, image=None, sizegb=10, preemptible=False,
+                        network=None, external_ip=False,
+                        metadata=None, tags=None, config={}):
 
-        if zone is None or network is None:
-            current_instance = self.get_current_instance()
-            if zone is None:
-                zone = current_instance["zone"].split("/")[-1]
-            if network is None:
-                network = current_instance["networkInterfaces"][0]["network"]
+        current_instance = self.get_current_instance()
+        if network is None:
+            network = current_instance["networkInterfaces"][0]["network"]
 
         init_config = {
             'machineType': "zones/{0}/machineTypes/{1}".format(zone, mtype),
@@ -96,6 +97,9 @@ class Client(ClientBase):
             'scheduling': {
                 'preemptible': preemptible
             },
+            'tags': {
+                'items': []
+            },
             'serviceAccounts': [{
                 'email': 'default',
                 'scopes': ["https://www.googleapis.com/auth/cloud-platform"]
@@ -105,6 +109,10 @@ class Client(ClientBase):
         if external_ip:
             access_configs = [{"type": "ONE_TO_ONE_NAT", "name": "External NAT"}]
             init_config["networkInterfaces"][0]["accessConfigs"] = access_configs
+        if tags is not None:
+            if isinstance(tags, str):
+                tags = [tags]
+            init_config["tags"]["items"] = tags
         if metadata is not None:
             init_config["metadata"] = metadata
 
@@ -121,7 +129,7 @@ class Client(ClientBase):
                 raise Exception(exception)
 
         #batch = BatchHttpRequest()
-        batch = self._ceservice.new_batch_http_request(callback=check_exception)
+        batch = self._ceservice.new_batch_http_request(callback=_check_exception)
         instances = self._ceservice.instances()
 
         if disks is not None:
@@ -159,17 +167,17 @@ class Client(ClientBase):
             nfailed = len(failed_names)
             ndoing  = len(check_names)
             ndone   = nall - nfailed - ndoing
-            print("\rRUNNING: {0}, SUSPENDED: {1}, PROVISIONING: {2} (waiting second: {3}s)".format(ndone, nfailed, ndoing, wait_second), end="")
+            print("\r[CREATE INSTANCE] RUNNING: {0}, SUSPENDED: {1}, PROVISIONING: {2} (waiting {3}sec)".format(ndone, nfailed, ndoing, wait_second), end="")
             time.sleep(1)
             wait_second += 1
-        print("\rRUNNING: {0}, SUSPENDED: {1} (waited second: {2}s)\n".format(ndone, nfailed, wait_second), end="")
+        print("\r[CREATE INSTANCE] RUNNING: {0}, SUSPENDED: {1} (waited {2}sec)\n".format(ndone, nfailed, wait_second), end="")
 
     def delete_instance(self, zone, names, tag=None):
 
         if isinstance(names, str):
             names = [names]
 
-        batch = BatchHttpRequest()
+        batch = self._ceservice.new_batch_http_request(callback=_check_exception)
         instances = self._ceservice.instances()
         for name in names:
             req = instances.delete(project=self._project_id,
@@ -177,102 +185,50 @@ class Client(ClientBase):
             batch.add(req)
         self._try_batch_execute(batch)
 
-        #req = instances.delete(project=self._project_id,
-        #                       zone=zone,
-        #                       instance=instance_id)
-        #resp = req.execute()
-
-    def stop_instance(self, names, zone=None):
-
-        if zone is None:
-            zone = self.get_instance_metadata("zone")
+    def stop_instance(self, zone, names):
 
         if isinstance(names, str):
             names = [names]
 
+        batch = self._ceservice.new_batch_http_request(callback=_check_exception)
         instances = self._ceservice.instances()
-        if len(names) == 1:
+        for name in names:
             req = instances.stop(project=self._project_id,
                                  zone=zone,
-                                 instance=names[0])
-            resp = self._try_execute(req)
-        elif len(names) > 1:
-            for name in names:
-                req = instances.stop(project=self._project_id,
-                                     zone=zone,
-                                     instance=name)
-                batch.add(req)
-            self._try_batch_execute(batch)
-        else:
-            raise Exception("instance name must not be vacant!")
+                                 instance=name)
+            batch.add(req)
+        self._try_batch_execute(batch)
 
-    def start_instance(self, names=None, zone=None):
-
-        if zone is None:
-            zone = self.get_instance_metadata("zone")
+    def start_instance(self, zone, names):
 
         if isinstance(names, str):
             names = [names]
 
+        batch = self._ceservice.new_batch_http_request(callback=_check_exception)
         instances = self._ceservice.instances()
-        if len(names) == 1:
-            req = instances.start(project=self._project_id,
-                                  zone=zone,
-                                  instance=names[0])
-            resp = self._try_execute(req)
-        elif len(names) > 1:
-            for name in names:
-                req = instances.insert(project=self._project_id,
-                                       zone=zone,
-                                       instance=name)
-                batch.add(req)
-            self._try_batch_execute(batch)
+        for name in names:
+            req = instances.insert(project=self._project_id,
+                                   zone=zone,
+                                   instance=name)
+            batch.add(req)
+        self._try_batch_execute(batch)
+
+    def create_disk(self, zone, names, snapshot=None, image=None):
+
+        if snapshot is not None:
+            if snapshot.startswith("global"):
+                snapshot = "projects/{0}/{1}".format(self._project_id, snapshot)
+            elif not snapshot.startswith("projects"):
+                snapshot = "projects/{0}/global/snapshots/{1}".format(self._project_id, snapshot)
+            config = {
+                "sourceSnapshot": snapshot
+            }
+        elif image is not None:
+            config = {
+                "sourceImage": image
+            }
         else:
-            raise Exception("instance name must not be vacant!")
-
-
-    def create_disk(self, zone, disk, name, block=True):
-
-        config = {
-            "name": name,
-            "sourceSnapshot": "global/snapshots/{0}".format(disk)
-        }
-        disks = self._ceservice.disks()
-        req = disks.insert(project=self._project_id, zone=zone, body=config)
-        resp = self._try_execute(req)
-        if 'error' in resp:
-            raise Exception(resp['error'])
-
-        if not block:
-            return resp
-
-        wait_second = 0
-        status = resp["status"]
-        while status not in ["DONE","FAILED","READY"]:
-            print("\r{0} (waiting second: {1}s)".format(status, wait_second), end="")
-            time.sleep(1)
-            wait_second += 1
-            resp = disks.get(project=self._project_id, zone=zone, disk=name).execute()
-            status = resp["status"]
-        print("\r{0} (waited second: {1}s)\n".format(status, wait_second), end="")
-        if status == "FAILED":
-            raise Exception()
-
-        return resp
-
-    def create_disks(self, names, snapshot, zone=None):
-
-        if snapshot.startswith("global"):
-            snapshot = "projects/{0}/{1}".format(self._project_id, snapshot)
-        elif not snapshot.startswith("projects"):
-            snapshot = "projects/{0}/global/snapshots/{1}".format(self._project_id, snapshot)
-
-        if zone is None:
-            zone = self.get_instance_metadata("zone")
-
-        config = {
-            "sourceSnapshot": snapshot
-        }
+            raise Exception("Both snapshot and image are None! Input at least one!")
 
         if isinstance(names, str):
             names = [names]
@@ -281,7 +237,7 @@ class Client(ClientBase):
             if exception is not None:
                 raise Exception(exception)
 
-        batch = self._ceservice.new_batch_http_request(callback=check_exception)
+        batch = self._ceservice.new_batch_http_request(callback=_check_exception)
         disks = self._ceservice.disks()
         for name in names:
             body = config.copy()
@@ -304,10 +260,10 @@ class Client(ClientBase):
             nfailed = len(failed_names)
             ndoing  = len(check_names)
             ndone   = nall - nfailed - ndoing
-            print("\rDONE: {0}, FAILED: {1}, DOING: {2} (waiting second: {3}s)".format(ndone, nfailed, ndoing, wait_second), end="")
+            print("\r[CREATE DISK] DONE: {0}, FAILED: {1}, DOING: {2} (waiting {3}sec)".format(ndone, nfailed, ndoing, wait_second), end="")
             time.sleep(1)
             wait_second += 1
-        print("\rDONE: {0}, FAILED: {1} (waited second: {2}s)\n".format(ndone, nfailed, wait_second), end="")
+        print("\r[CREATE DISK] DONE: {0}, FAILED: {1} (waited {2}sec)\n".format(ndone, nfailed, wait_second), end="")
 
     def delete_disk(self, zone, disk):
 
@@ -315,19 +271,19 @@ class Client(ClientBase):
         req = disks.delete(project=self._project_id, zone=zone, disk=disk)
         resp = self._try_execute(req)
 
-    def resize_disk(self, zone, disk, sizeGb):
+    def resize_disk(self, zone, disk, sizegb):
 
         config = {
-            "sizeGb": sizeGb
+            "sizeGb": sizegb
         }
         disks = self._ceservice.disks()
         req = disks.resize(project=self._project_id, zone=zone, disk=disk, body=config)
         resp = self._try_execute(req)
 
-    def create_image(self, disk, image_name, block=True):
+    def create_image(self, name, disk, snapshot=None):
 
         config = {
-            "name": image_name,
+            "name": name,
             "rawDisk": {
                 "source": "https://www.googleapis.com/compute/v1/projects/{0}/global/snapshots/{1}".format(self._project_id, snapshot_name)
             }
@@ -342,27 +298,27 @@ class Client(ClientBase):
         wait_second = 0
         status = resp["status"]
         while "DONE" != status:
-            print("\r{0} (waiting second: {1}s, {2}%)".format(status, wait_second, resp["progress"]), end="")
+            print("\r[CREATE IMAGE] {0} (waiting second: {1}s, {2}%)".format(status, wait_second, resp["progress"]), end="")
             time.sleep(5)
             wait_second += 5
-            resp = images.get(project=self._project_id, image=image_name).execute()
+            resp = images.get(project=self._project_id, image=name).execute()
             status = resp["status"]
-        print("\rDONE (waited second: {0}s)\n".format(wait_second))
+        print("\r[CREATE IMAGE] DONE (waited second: {0}s)\n".format(wait_second))
         if 'error' in resp:
             raise Exception(resp['error'])
 
         return resp
 
-    def delete_image(self, image_name, block=True):
+    def delete_image(self, name):
 
         images = self._ceservice.images()
-        req = images.delete(project=self._project_id, image=image_name)
+        req = images.delete(project=self._project_id, image=name)
         resp = self._try_execute(req)
 
-    def create_snapshot(self, zone, disk, snapshot_name, block=True):
+    def create_snapshot(self, name, zone, disk):
 
         config = {
-            "name": snapshot_name
+            "name": name
         }
         disks = self._ceservice.disks()
         req = disks.createSnapshot(project=self._project_id,
@@ -377,34 +333,36 @@ class Client(ClientBase):
         wait_second = 0
         status = resp["status"]
         while status not in ["DONE", "FAILED", "READY"]:
-            print("\r{0} (waiting second: {1}s)".format(status, wait_second), end="")
+            print("\r[CREATE SNAPSHOT] {0} (waiting {1}sec)".format(status, wait_second), end="")
             time.sleep(1)
             wait_second += 1
-            resp = snapshots.get(project=self._project_id, snapshot=snapshot_name).execute()
+            resp = snapshots.get(project=self._project_id, snapshot=name).execute()
             status = resp["status"]
-        print("\r{0} (waited second: {1}s)\n".format(status, wait_second), end="")
+        print("\r[CREATE SNAPSHOT] {0} (waited {1}sec)\n".format(status, wait_second), end="")
         if status == "FAILED":
-            raise Exception()
+            raise Exception("Failed to create snapshot from disk: {0}".format(disk))
 
         return resp
 
-    def delete_snapshot(self, snapshot_name):
-        req = service.snapshots().delete(project=self._project_id,
-                                         snapshot=snapshot_name)
+    def delete_snapshot(self, name):
+        snapshots = service.snapshots()
+        req = snapshots.delete(project=self._project_id, snapshot=name)
         resp = self._try_execute(req)
 
-    def deploy_ipcluster(self, profile, itype="standard", core=1, num=1, icore=None,
+    def deploy_ipcluster(self, profile, itype="standard", core=1, num=1, pnum=None,
                          image=None, sizegb=10, snapshot=None, preemptible=False,
                          zone=None, network=None, mtype=None, config=None):
 
         # check existing profile
         profile_dir = os.path.expanduser('~/.ipython/profile_{0}'.format(profile))
         if os.path.isdir(profile_dir):
-            command = 'ipcluster stop --profile={0}'.format(profile)
-            ret = os.system(command)
+            c0 = "'{print $2}'`"
+            c1 = "kill -9 `ps -ef | grep 'ipcontroller start --profile {0}' | grep -v 'grep' |awk ".format(profile)
+            ret = os.system(c1 + c0)
+            ret = os.system("rm -f ~/.ipython/profile_{0}/pid/*".format(profile))
+            ret = os.system("rm -f ~/.ipython/profile_{0}/security/*".format(profile))
         else:
-            command = 'ipython profile create --parallel --profile={0}'.format(profile)
-            ret = os.system(command)
+            ret = os.system('ipython profile create --parallel --profile={0}'.format(profile))
             if ret != 0:
                 raise Exception("Failed to create profile {0}".format(profile))
 
@@ -425,11 +383,11 @@ class Client(ClientBase):
         if snapshot is None and image is None:
             disk = self.get_instance_metadata("disks/0/device-name")
             snapshot = "{0}-{1}-{2}".format(os.uname()[1], os.getpid(), int(time.time()))
-            self.create_snapshot(zone, disk, snapshot)
+            self.create_snapshot(snapshot, zone, disk)
 
         names = ["ipcluster-{0}-{1}".format(profile, no) for no in range(num)]
         if snapshot is not None:
-            self.create_disks(names, snapshot, zone=zone)
+            self.create_disk(zone, names, snapshot=snapshot)
 
         # start ipcontroller on current instance.
         network_ip = current_instance["networkInterfaces"][0]["networkIP"]
@@ -453,28 +411,31 @@ class Client(ClientBase):
         startup_script = """
 #! /bin/bash
 
-#mkdir -p ~/.ipython/profile_{0}/security
-ipython profile create {0}
+ls -l /usr/local/bin
+ipython profile create --parallel --profile={0}
+rm -f ~/.ipython/profile_{0}/pid/*
+rm -f ~/.ipython/profile_{0}/security/*
+
 cat <<EOF > ~/.ipython/profile_{0}/security/ipcontroller-engine.json
 {1}
 EOF
 ipcluster engines --profile {0} -n {2} --daemonize
-        """.format(profile, engine_file_content, core if icore is None else icore)
+        """.format(profile, engine_file_content, core if pnum is None else pnum)
 
         # create instances for ipengines.
         metadata = {"items": [{"key": "startup-script", "value": startup_script}]}
         if snapshot is not None:
-            self.create_instance(names=names, mtype=mtype, disks=names,
-                                 zone=zone, network=network, metadata=metadata, preemptible=preemptible)
+            self.create_instance(zone=zone, names=names, mtype=mtype, disks=names, external_ip=True,
+                                 network=network, metadata=metadata, preemptible=preemptible)
         else:
-            self.create_instance(names=names, mtype=mtype, image=image, sizegb=sizegb,
-                                 zone=zone, network=network, metadata=metadata, preemptible=preemptible)
+            self.create_instance(zone=zone, names=names, mtype=mtype, image=image, sizegb=sizegb,
+                                 network=network, metadata=metadata, preemptible=preemptible)
 
     def delete_ipcluster(self, profile):
 
         pass
 
-    def add_ipengine(self, profile, itype="standard", core=1, num=1, icore=None,
+    def add_ipengine(self, profile, itype="standard", core=1, num=1, pnum=None,
                      image=None, sizegb=10, snapshot=None, preemptible=False,
                      mtype=None, config=None):
 
