@@ -40,31 +40,49 @@ class Client(ClientBase):
         if exception is not None:
             raise Exception(exception)
 
-    def get_instance_metadata(self, param):
+    def get_current_instance_metadata(self, param):
 
         gh_url = 'http://metadata.google.internal/computeMetadata/{0}/instance/{1}'.format(Client.__API_VERSION, param)
         resp = requests.get(gh_url, headers={"Metadata-Flavor": "Google"})
         return resp.text
 
+    def get_current_instance_name(self):
+
+        name = self.get_instance_metadata("hostname").split(".")[0]
+        return name
+
+    def get_current_instance_zone(self):
+
+        zone = self.get_instance_metadata("zone").split("/")[-1]
+        return zone
+
+    def get_current_instance_disk(self):
+
+        disk = self.get_current_instance_metadata("disks/0/device-name")
+        return disk
+
     def get_current_instance(self):
 
         #instance_id = self.get_instance_metadata("id")
-        hostname    = self.get_instance_metadata("hostname")
-        zone        = self.get_instance_metadata("zone")
+        name = self.get_current_instance_name()
+        zone = self.get_current_instance_zone()
         #tags        = self.get_instance_metadata("tags")
         #return {"id": instance_id, "hostname": hostname, "zone": zone, "tags": tags}
 
-        zone = zone.split("/")[-1]
-        instance_name = hostname.split(".")[0]
-
-        resp = self.get_instance(zone=zone, name=instance_name)
+        resp = self.get_instance(zone=zone, name=name)
         return resp
 
     def stop_current_instance(self):
-        current_instance = self.get_current_instance()
-        name = current_instance["name"]
-        zone = current_instance["zone"].split("/")[-1]
+
+        name = self.get_current_instance_name()
+        zone = self.get_current_instance_zone()
         self.stop_instance(name, zone)
+
+    def create_current_snapshot(self, name):
+
+        zone = self.get_current_instance_zone()
+        disk = self.get_current_instance_disk()
+        self.create_snapshot(name, zone, disk)
 
     def get_instance(self, zone, name):
         req = self._ceservice.instances().get(project=self._project_id,
@@ -293,9 +311,6 @@ class Client(ClientBase):
         req = images.insert(project=self._project_id, body=config)
         resp = self._try_execute(req)
 
-        if not block:
-            return resp
-
         wait_second = 0
         status = resp["status"]
         while "DONE" != status:
@@ -386,7 +401,7 @@ class Client(ClientBase):
         # create disks from snapshot.
         create_temp_snapshot = False
         if snapshot is None and image is None:
-            disk = self.get_instance_metadata("disks/0/device-name")
+            disk = self.get_current_instance_disk()
             snapshot = "{0}-{1}-{2}".format(os.uname()[1], os.getpid(), int(time.time()))
             self.create_snapshot(snapshot, zone, disk)
             create_temp_snapshot = True
