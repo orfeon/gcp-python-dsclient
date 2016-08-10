@@ -40,7 +40,7 @@ Initialize Client instance
     # you need to set project name, and access key file path.
     client = dsclient.Client("your project name", "./keyfile.json")
 
-Usage Google BigQuery
+Usage Google BigQuery with Pandas
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Google `BigQuery`_ (`BigQuery API docs`_)
@@ -58,7 +58,7 @@ Google `BigQuery`_ (`BigQuery API docs`_)
     """
     df = client.query(query_string) # Use lquery() for large data.
 
-    # Upload pandas.DataFrame to existing table on BigQuery.
+    # Upload(Append) pandas.DataFrame to existing table on BigQuery.
     client.load(df, "your_dataset.your_table")
     # Override existing table.
     client.load(df, "your_dataset.your_table", append=False)
@@ -67,7 +67,7 @@ Google `BigQuery`_ (`BigQuery API docs`_)
     client.insert(query_string, "your_dataset.your_table_2")
 
 
-Usage Google Cloud Storage
+Usage Google Cloud Storage with Pandas
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Google `Cloud Storage`_ (`Storage API docs`_)
@@ -98,6 +98,31 @@ Google `Cloud Storage`_ (`Storage API docs`_)
     # Read blob data from Cloud Storage.
     reg = client.read_blob("gs://your_bucket/your_file.model")
     prd = reg.predict(df2[["attr1","attr2",...]])
+
+
+Usage Google Compute Engine with IPython and IPyParallel
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    .. code:: python
+
+    # create snapshot of current instance on GCE.
+    client.create_current_snapshot(snapshot_name)
+
+    # deploy ipcluster from snapshot.
+    client.deploy_ipcluster(profile="mycluster", snapshot=snapshot_name,
+                            itype="standard", core=4, num=4)
+
+    # execute some tasks on ipcluster.
+
+    # add ipengine to existing ipcluster.
+    client.add_ipengine(profile="mycluster", snapshot=snapshot_name,
+                        itype="small", num=4)
+
+    # delete ipcluster.
+    client.delete_ipcluster(profile="mycluster")
+
+    # stop current instance when all tasks are finished.
+    client.stop_current_instance()
 
 
 License

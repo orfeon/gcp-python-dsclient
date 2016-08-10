@@ -13,7 +13,7 @@ class Client(ClientBase):
 
     __ENDPOINT_GCE = "https://www.googleapis.com/auth/compute"
     __API_NAME = "compute"
-    __API_VERSION = "v1"
+    __API_VERSION = "beta"
 
     __API_URI = "https://www.googleapis.com/{0}/{1}/".format(__API_NAME, __API_VERSION)
 
@@ -52,29 +52,24 @@ class Client(ClientBase):
 
     def get_current_instance_metadata(self, param):
 
-        gh_url = 'http://metadata.google.internal/computeMetadata/{0}/instance/{1}'.format(Client.__API_VERSION, param)
+        gh_url = 'http://metadata.google.internal/computeMetadata/v1/instance/{0}'.format(param)
         resp = requests.get(gh_url, headers={"Metadata-Flavor": "Google"})
         return resp.text
 
     def get_current_instance_name(self):
 
-        name = self.get_instance_metadata("hostname").split(".")[0]
+        name = self.get_current_instance_metadata("hostname").split(".")[0]
         return name
 
     def get_current_instance_zone(self):
 
-        zone = self.get_instance_metadata("zone").split("/")[-1]
+        zone = self.get_current_instance_metadata("zone").split("/")[-1]
         return zone
 
     def get_current_instance_disk(self):
 
         disk = self.get_current_instance_metadata("disks/0/device-name")
         return disk
-
-    def get_current_instance_network(self):
-
-        network = self.get_current_instance_metadata("disks/0/device-name")
-        return network
 
     def get_current_instance(self):
 
@@ -112,7 +107,7 @@ class Client(ClientBase):
     def create_instance(self, zone, names,
                         mtype, disks=None, image=None, sizegb=10, preemptible=False,
                         network=None, external_ip=False,
-                        metadata=None, labels=None, config={}):
+                        metadata=None, tags=None, config={}):
 
         current_instance = self.get_current_instance()
         if network is None:
@@ -134,6 +129,9 @@ class Client(ClientBase):
             'scheduling': {
                 'preemptible': preemptible
             },
+            'tags': {
+                'items': []
+            },
             'serviceAccounts': [{
                 'email': 'default',
                 'scopes': ["https://www.googleapis.com/auth/cloud-platform"]
@@ -143,10 +141,10 @@ class Client(ClientBase):
         if external_ip:
             access_configs = [{"type": "ONE_TO_ONE_NAT", "name": "External NAT"}]
             init_config["networkInterfaces"][0]["accessConfigs"] = access_configs
-        if labels is not None:
-            if isinstance(labels, str):
-                labels = [labels]
-            init_config["labels"] = labels
+        if tags is not None:
+            if isinstance(tags, str):
+                tags = [tags]
+            init_config["tags"]["items"] = tags
         if metadata is not None:
             init_config["metadata"] = metadata
 
@@ -378,22 +376,8 @@ class Client(ClientBase):
         req = snapshots.delete(project=self._project_id, snapshot=name)
         resp = self._try_execute(req)
 
-    def deploy_ipcluster(self, profile, itype="standard", core=1, num=1, pnum=None,
-                         image=None, sizegb=10, snapshot=None, preemptible=False,
-                         zone=None, network=None, mtype=None, config=None):
+    def _check_params(self, zone, network, mtype, itype, core, pnum):
 
-        # check existing profile
-        profile_dir = os.path.expanduser('~/.ipython/profile_{0}'.format(profile))
-        if os.path.isdir(profile_dir):
-            Client._clean_ipcontroller(profile)
-        else:
-            ret = os.system('ipython profile create --parallel --profile={0}'.format(profile))
-            if ret != 0:
-                raise Exception("Failed to create profile {0}".format(profile))
-
-        # check params and input default value.
-        if snapshot is not None and image is not None:
-            raise Exception("Both snapshot and image filled! chose one!")
         current_instance = self.get_current_instance()
         if zone is None:
             zone = current_instance["zone"].split("/")[-1]
@@ -403,43 +387,51 @@ class Client(ClientBase):
             if itype == "micro" or itype == "small":
                 prefix = "f1" if itype == "micro" else "g1"
                 mtype = "{0}-{1}".format(prefix, itype)
+                core = 1
             elif itype in ["standard","highmem","highcpu"]:
                 if core not in [1,2,4,8,16,32]:
                     raise Exception("core must be 1,2,4,8,16,32!")
                 mtype = "n1-{0}-{1}".format(itype, core)
             else:
                 raise Exception("itype must be standard,highmem,highcpu,small,micro!")
+        pnum = core if pnum is None else pnum
+        network_ip = current_instance["networkInterfaces"][0]["networkIP"]
 
-        # create disks from snapshot.
+        return zone, network, mtype, pnum, network_ip
+
+    def _create_disks_from_snapshot(self, zone, names, snapshot):
+
         create_temp_snapshot = False
-        if snapshot is None and image is None:
+        if snapshot is None:
             disk = self.get_current_instance_disk()
             snapshot = "{0}-{1}-{2}".format(os.uname()[1], os.getpid(), int(time.time()))
             self.create_snapshot(snapshot, zone, disk)
             create_temp_snapshot = True
 
-        names = ["ipcluster-{0}-{1}".format(profile, no) for no in range(num)]
-        if snapshot is not None:
-            self.create_disk(zone, names, snapshot=snapshot)
-            #if create_temp_snapshot:
-            #    self.delete_snapshot(snapshot)
+        self.create_disk(zone, names, snapshot=snapshot)
+        if create_temp_snapshot:
+            self.delete_snapshot(snapshot)
 
-        # start ipcontroller on current instance.
-        network_ip = current_instance["networkInterfaces"][0]["networkIP"]
+        return snapshot
+
+    def _start_wait_ipcontroller(self, profile, network_ip, engine_file_path):
+
         command = "ipcontroller start --profile {0} --ip {1} &".format(profile, network_ip)
         ret = os.system(command)
         if ret != 0:
             raise Exception("Failed to start ipcontroller on this host!")
 
         retry = 30
-        engine_file_path = profile_dir + "/security/ipcontroller-engine.json"
         while not os.path.isfile(engine_file_path):
             time.sleep(1)
             retry -= 1
             if retry < 0:
                 raise Exception("Failed to create engine file: {0}".format(engine_file_path))
 
-        # create ipcontroller-engine.json for ipengine hosts.
+        return engine_file_path
+
+    def _create_startup_script(self, profile, engine_file_path, pnum):
+
         with open(engine_file_path, "r") as engine_file:
             engine_file_content = engine_file.read()
 
@@ -457,32 +449,95 @@ EOF
 ipcluster engines --profile {0} -n {2} --daemonize
         """.format(profile, engine_file_content, core if pnum is None else pnum)
 
+        return startup_script
+
+    def create_ipcluster(self, profile, itype="standard", core=1, num=1, pnum=None,
+                         image=None, sizegb=10, snapshot=None, preemptible=False,
+                         zone=None, network=None, mtype=None, external_ip=False, config=None):
+
+        if snapshot is not None and image is not None:
+            raise Exception("Both snapshot and image filled! chose one!")
+
+        # check existing profile
+        profile_dir = os.path.expanduser('~/.ipython/profile_{0}'.format(profile))
+        if os.path.isdir(profile_dir):
+            Client._clean_ipcontroller(profile)
+        else:
+            ret = os.system('ipython profile create --parallel --profile={0}'.format(profile))
+            if ret != 0:
+                raise Exception("Failed to create profile {0}".format(profile))
+
+        zone, network, mtype, pnum, network_ip = self._check_params(zone, network, mtype, itype, core, pnum)
+
+        names = ["ipcluster-{0}-{1}".format(profile, no) for no in range(num)]
+        if image is None:
+            snapshot = self._create_disks_from_snapshot(zone, names, snapshot)
+
+        engine_file_path = profile_dir + "/security/ipcontroller-engine.json"
+        self._start_wait_ipcontroller(profile, network_ip, engine_file_path)
+
+        startup_script = self._create_startup_script(profile, engine_file_path, pnum)
+
         # create instances for ipengines.
         metadata = {"items": [{"key": "startup-script", "value": startup_script}]}
-        labels = {"ipcluster-profile": profile}
         if snapshot is not None:
             self.create_instance(zone=zone, names=names, mtype=mtype, disks=names,
-                                 external_ip=True, network=network, preemptible=preemptible,
-                                 metadata=metadata, labels=labels)
+                                 external_ip=external_ip, network=network, preemptible=preemptible,
+                                 metadata=metadata)
         else:
             self.create_instance(zone=zone, names=names, mtype=mtype, image=image, sizegb=sizegb,
-                                 external_ip=True, network=network, preemptible=preemptible,
-                                 metadata=metadata, labels=labels)
+                                 external_ip=external_ip, network=network, preemptible=preemptible,
+                                 metadata=metadata)
+
+    def add_ipengine(self, profile, itype="standard", core=1, num=1, pnum=None,
+                     image=None, sizegb=10, snapshot=None, preemptible=False,
+                     mtype=None, external_ip=False, config=None):
+
+        if snapshot is not None and image is not None:
+            raise Exception("Both snapshot and image filled! chose one!")
+
+        # check existing profile
+        profile_dir = os.path.expanduser('~/.ipython/profile_{0}'.format(profile))
+        if not os.path.isdir(profile_dir):
+            raise Exception("No profile {0}".format(profile))
+
+        zone, network, mtype, pnum, network_ip = self._check_params(None, None, mtype, itype, core, pnum)
+
+        current_names = self.get_ipcluster_instance(profile)
+        sindex = max([int(name.split("-")[-1]) for name in current_names]) + 1 if current_names else 0
+
+        names = ["ipcluster-{0}-{1}".format(profile, no) for no in range(sindex,num+sindex)]
+        if image is None:
+            snapshot = self._create_disks_from_snapshot(zone, names, snapshot)
+
+        engine_file_path = profile_dir + "/security/ipcontroller-engine.json"
+        startup_script = self._create_startup_script(profile, engine_file_path, pnum)
+
+        # create instances for ipengines.
+        metadata = {"items": [{"key": "startup-script", "value": startup_script}]}
+        if snapshot is not None:
+            self.create_instance(zone=zone, names=names, mtype=mtype, disks=names,
+                                 external_ip=external_ip, network=network, preemptible=preemptible,
+                                 metadata=metadata)
+        else:
+            self.create_instance(zone=zone, names=names, mtype=mtype, image=image, sizegb=sizegb,
+                                 external_ip=external_ip, network=network, preemptible=preemptible,
+                                 metadata=metadata)
 
     def delete_ipcluster(self, profile):
 
         zone = self.get_current_instance_zone()
-        filter_str = "ipcluster-profile eq {0}".format(profile)
-        instances = self.list_instance(zone, filter_str)
-        if len(instances["items"]) == 0:
-            print("No instance belong to profile: {0}".format(profile))
-            return
-        names = [instance["name"] for instance in instances["items"]]
+        names = self.get_ipcluster_instance(profile, zone)
         self.delete_instance(zone, names)
         Client._clean_ipcontroller(profile)
 
-    def add_ipengine(self, profile, itype="standard", core=1, num=1, pnum=None,
-                     image=None, sizegb=10, snapshot=None, preemptible=False,
-                     mtype=None, config=None):
+    def get_ipcluster_instance(self, profile, zone=None):
 
-        pass
+        if zone is None:
+            zone = self.get_current_instance_zone()
+        filter_str = "name eq ipcluster-{0}-[0-9]+".format(profile)
+        instances = self.list_instance(zone, filter_str)
+        if len(instances["items"]) == 0:
+            return []
+        names = [instance["name"] for instance in instances["items"]]
+        return names
