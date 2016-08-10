@@ -40,19 +40,19 @@ class Client(ClientBase):
             msg = ":".join([error["reason"] + error["message"] for error in job["status"]["errors"]])
             raise Exception(msg)
 
-    def _wait_job(self, job):
+    def _wait_job(self, job, jobname="JOB"):
 
         jobs = self._bqservice.jobs()
         job_id = job["jobReference"]["jobId"]
         state = job["status"]["state"]
         wait_second = 0
         while "DONE" != state:
-            print("\r{0} (waiting second: {1}s)".format(state, wait_second), end="")
-            time.sleep(5)
-            wait_second += 5
+            print("\r[{0}] {1} (waiting {2}s)".format(jobname, state, wait_second), end="")
+            time.sleep(1)
+            wait_second += 1
             job = jobs.get(projectId=self._project_id, jobId=job_id).execute()
             state = job["status"]["state"]
-        print("\rDONE (waited second: {0}s)\n".format(wait_second))
+        print("\r[{0}] {1} (waited {2}s)\n".format(jobname, state, wait_second))
         self._check_joberror(job)
 
         return job
@@ -153,7 +153,7 @@ class Client(ClientBase):
         if not block:
             return resp["jobReference"]["jobId"]
 
-        resp = self._wait_job(resp)
+        resp = self._wait_job(resp, "BQ INSERT")
 
         return resp
 
@@ -224,7 +224,7 @@ class Client(ClientBase):
         if not block:
             return resp["jobReference"]["jobId"]
 
-        resp = self._wait_job(resp)
+        resp = self._wait_job(resp, "BQ LOAD")
 
         return resp
 
@@ -255,7 +255,7 @@ class Client(ClientBase):
         if not block:
             return resp["jobReference"]["jobId"]
 
-        self._wait_job(resp)
+        self._wait_job(resp, "BQ EXTRACT")
 
         table = self.get_table(table_name)
         return table

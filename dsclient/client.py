@@ -16,7 +16,6 @@ class Client(bigquery.Client, storage.Client, compute.Client):
 
         table_id = "tmp_{0}_{1}_{2}".format(os.uname()[1], os.getpid(), int(time.time()))
 
-        print("-----INSERTING TEMP TABLE-----\n")
         if dataset_id is None:
             dataset_id = table_id
             self.create_dataset(dataset_id=dataset_id, expiration_ms=3600000)
@@ -29,7 +28,6 @@ class Client(bigquery.Client, storage.Client, compute.Client):
             raise
 
         #expirationTime = int(time.time()) * 1000 + 360000
-        print("-----EXTRACTING TO STORAGE-----\n")
         if bucket is None:
             bucket = table_id
             self.create_bucket(bucket)
