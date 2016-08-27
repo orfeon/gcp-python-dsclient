@@ -103,19 +103,23 @@ Google `Cloud Storage`_ (`Storage API docs`_)
 Usage Google Compute Engine with IPython and IPyParallel
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    .. code:: python
+.. code:: python
 
     # create snapshot of current instance on GCE.
-    client.create_current_snapshot(snapshot_name)
+    client.create_current_snapshot("snapshot_name")
 
     # deploy ipcluster from snapshot.
-    client.deploy_ipcluster(profile="mycluster", snapshot=snapshot_name,
+    client.deploy_ipcluster(profile="mycluster", snapshot="snapshot_name",
                             itype="standard", core=4, num=4)
 
     # execute some tasks on ipcluster.
+    import ipyparallel
+    rc = ipyparallel.Client(profile='mycluster')
+    lview = rc.load_balanced_view()
+    results = lview.map_async(some_func, task_list)
 
     # add ipengine to existing ipcluster.
-    client.add_ipengine(profile="mycluster", snapshot=snapshot_name,
+    client.add_ipengine(profile="mycluster", snapshot="snapshot_name",
                         itype="small", num=4)
 
     # delete ipcluster.

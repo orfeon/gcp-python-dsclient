@@ -453,7 +453,7 @@ ipcluster engines --profile {0} -n {2} --daemonize
 
     def create_ipcluster(self, profile, itype="standard", core=1, num=1, pnum=None,
                          image=None, sizegb=10, snapshot=None, preemptible=False,
-                         zone=None, network=None, mtype=None, external_ip=False, config=None):
+                         zone=None, network=None, mtype=None, external_ip=True, config=None):
 
         if snapshot is not None and image is not None:
             raise Exception("Both snapshot and image filled! chose one!")
@@ -491,7 +491,7 @@ ipcluster engines --profile {0} -n {2} --daemonize
 
     def add_ipengine(self, profile, itype="standard", core=1, num=1, pnum=None,
                      image=None, sizegb=10, snapshot=None, preemptible=False,
-                     mtype=None, external_ip=False, config=None):
+                     mtype=None, external_ip=True, config=None):
 
         if snapshot is not None and image is not None:
             raise Exception("Both snapshot and image filled! chose one!")

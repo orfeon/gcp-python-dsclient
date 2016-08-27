@@ -14,7 +14,7 @@ class Client(bigquery.Client, storage.Client, compute.Client):
 
     def lquery(self, query, dataset_id=None, bucket=None):
 
-        table_id = "tmp_{0}_{1}_{2}".format(os.uname()[1], os.getpid(), int(time.time()))
+        table_id = "tmp_{0}_{1}_{2}".format(os.uname()[1].replace("-","_"), os.getpid(), int(time.time()))
 
         if dataset_id is None:
             dataset_id = table_id
