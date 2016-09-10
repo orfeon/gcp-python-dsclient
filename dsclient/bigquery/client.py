@@ -7,6 +7,7 @@ from apiclient.http import BatchHttpRequest
 from googleapiclient.errors import HttpError
 from .. base import ClientBase
 from .. schema import Schema, convert_df2bqschema
+from .. errors import BigQueryError
 
 
 class Client(ClientBase):
@@ -36,9 +37,10 @@ class Client(ClientBase):
 
     def _check_joberror(self, job):
 
-        if "status" in job and "errors" in job["status"]:
-            msg = ":".join([error["reason"] + error["message"] for error in job["status"]["errors"]])
-            raise Exception(msg)
+        if "status" in job and "errorResult" in job["status"]:
+            reasons  = [error["reason"] for error in job["status"]["errorResult"]]
+            messages = [error["message"] for error in job["status"]["errorResult"]]
+            raise BigQueryError(reasons, messages)
 
     def _wait_job(self, job, jobname="JOB"):
 
@@ -56,6 +58,22 @@ class Client(ClientBase):
         self._check_joberror(job)
 
         return job
+
+    def _try_execute_and_wait(self, req, jobname="BQ JOB", retry=3):
+
+        while True:
+            try:
+                resp = self._try_execute(req)
+                resp = self._wait_job(resp, jobname)
+                return resp
+            except BigQueryError as e:
+                if e.code == 503:
+                    print("BackendError. Trying again.")
+                    retry -= 1
+                    if retry <= 0:
+                        raise
+                    continue
+                raise
 
     def _job2series(self, json_job):
 
@@ -81,7 +99,8 @@ class Client(ClientBase):
 
         jobs = self._bqservice.jobs()
         body={'query': query, 'timeoutMs': 200000}
-        resp = jobs.query(projectId=self._project_id,body=body).execute()
+        req = jobs.query(projectId=self._project_id,body=body)
+        resp = self._try_execute(req)
 
         def _check_resperror(rsp):
             if "errors" in rsp:
@@ -120,8 +139,6 @@ class Client(ClientBase):
             current_sec = int(time.time() - start_sec)
             row_rate = int(100 * current_row_size / float(resp["totalRows"]))
             print("\r rows: read {0} / total {1} ({2}%), time: {3}s".format(current_row_size, resp["totalRows"], row_rate, current_sec), end="")
-            #if debug:
-            #    print(resp["totalRows"], len(resp["rows"]), current_row_size)
 
         dfs = pd.concat(df_list)
         return dfs
@@ -148,12 +165,13 @@ class Client(ClientBase):
 
         jobs = self._bqservice.jobs()
         req = jobs.insert(projectId=self._project_id, body=body)
-        resp = self._try_execute(req)
 
         if not block:
+            resp = self._try_execute(req)
+            self._check_joberror(resp)
             return resp["jobReference"]["jobId"]
 
-        resp = self._wait_job(resp, "BQ INSERT")
+        resp = self._try_execute_and_wait(req, "BQ INSERT")
 
         return resp
 
@@ -219,12 +237,13 @@ class Client(ClientBase):
                           media_body=MediaInMemoryUpload(buf.getvalue(),
                                                          mimetype='application/octet-stream',
                                                          resumable=True))
-        resp = self._try_execute(req)
 
         if not block:
+            resp = self._try_execute(req)
+            self._check_joberror(resp)
             return resp["jobReference"]["jobId"]
 
-        resp = self._wait_job(resp, "BQ LOAD")
+        resp = self._try_execute_and_wait(req, "BQ LOAD")
 
         return resp
 
@@ -248,14 +267,13 @@ class Client(ClientBase):
                }}
         jobs = self._bqservice.jobs()
         req = jobs.insert(projectId=self._project_id, body=body)
-        resp = self._try_execute(req)
-
-        self._check_joberror(resp)
 
         if not block:
+            resp = self._try_execute(req)
+            self._check_joberror(resp)
             return resp["jobReference"]["jobId"]
 
-        self._wait_job(resp, "BQ EXTRACT")
+        resp = self._try_execute_and_wait(req, "BQ EXTRACT")
 
         table = self.get_table(table_name)
         return table
