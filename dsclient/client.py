@@ -47,7 +47,8 @@ class Client(bigquery.Client, storage.Client, compute.Client):
             self.delete_dataset(dataset_id)
 
         schema = Schema(table["schema"])
-        df = self.read_csv(gs_uri)
+        dtype = schema.get_object_dtype()
+        df = self.read_csv(gs_uri, dtype=dtype)
         df = schema.update_dtype(df)
 
         self.delete_object(gs_uri)

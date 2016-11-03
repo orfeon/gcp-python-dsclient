@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 
 
@@ -26,6 +27,8 @@ class Schema(object):
 
     def __init__(self, schema):
 
+        dtype = {}
+        stype = {}
         cols  = []
         scols = []
         ncols = []
@@ -36,22 +39,40 @@ class Schema(object):
             name = field["name"]
             rtype = field["type"].lower()
             if rtype == "string":
+                dtype[name] = object
+                stype[name] = object
                 scols.append(name)
-            elif rtype == "integer" or rtype == "float":
+            elif rtype == "integer":
+                dtype[name] = np.int64
+                ncols.append(name)
+            elif rtype == "float":
+                dtype[name] = np.float64
                 ncols.append(name)
             elif rtype == "boolean":
+                dtype[name] = np.bool
                 bcols.append(name)
             elif rtype == "timestamp":
                 tcols.append(name)
             else:
+                dtype[name] = object
                 scols.append(name)
             cols.append(name)
 
+        self._dtype = dtype
+        self._stype = stype
         self._cols  = cols
         self._scols = scols
         self._ncols = ncols
         self._bcols = bcols
         self._tcols = tcols
+
+    def get_dtype(self):
+
+        return self._dtype
+
+    def get_object_dtype(self):
+
+        return self._stype
 
     def update_dtype(self, df):
 

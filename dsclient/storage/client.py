@@ -43,13 +43,13 @@ class Client(ClientBase):
                 raise
     """
 
-    def read_csv(self, uri, sep=",", header="infer"):
+    def read_csv(self, uri, sep=",", header="infer", dtype=None):
 
         bucket, file_path = self._parse_uri(uri)
         objects = self._gsservice.objects()
         req = objects.get_media(bucket=bucket, object=file_path)
         resp = self._try_execute(req)
-        df = pd.read_csv(BytesIO(resp), sep=sep, header=header)
+        df = pd.read_csv(BytesIO(resp), sep=sep, header=header, dtype=dtype)
         return df
 
     def write_csv(self, df, uri, sep=",", retry=3):

@@ -38,8 +38,10 @@ class Client(ClientBase):
     def _check_joberror(self, job):
 
         if "status" in job and "errorResult" in job["status"]:
-            reasons  = [error["reason"] for error in job["status"]["errorResult"]]
-            messages = [error["message"] for error in job["status"]["errorResult"]]
+            ereasons  = [error["reason"] for error in job["status"]["errors"]]
+            emessages = [error["message"] for error in job["status"]["errors"]]
+            reasons  = [job["status"]["errorResult"]["reason"]]
+            messages = [job["status"]["errorResult"]["message"] + ", ".join([r + ": " + m for r, m in zip(ereasons, emessages)])]
             raise BigQueryError(reasons, messages)
 
     def _wait_job(self, job, jobname="JOB"):
@@ -67,7 +69,7 @@ class Client(ClientBase):
                 resp = self._wait_job(resp, jobname)
                 return resp
             except BigQueryError as e:
-                if e.code == 503:
+                if 503 in e.codes:
                     print("BackendError. Trying again.")
                     retry -= 1
                     if retry <= 0:
