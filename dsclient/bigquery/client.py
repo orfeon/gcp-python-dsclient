@@ -97,7 +97,16 @@ class Client(ClientBase):
                          index=["jobid","state","creationTime",
                                 "startTime","endTime","bsize"])
 
-    def query(self, query, debug=True):
+    def query(self, query, table_name=None, append=True,
+               write_disposition=None, allow_large_results=True, block=True,):
+
+        if table_name is None:
+            return self._query_and_get(query)
+
+        return self._query_and_insert(query=query, table_name=table_name,append=append,
+                                      write_disposition=write_disposition, allow_large_results=allow_large_results, block=block)
+
+    def _query_and_get(self, query):
 
         jobs = self._bqservice.jobs()
         body={'query': query, 'timeoutMs': 200000}
@@ -145,7 +154,7 @@ class Client(ClientBase):
         dfs = pd.concat(df_list)
         return dfs
 
-    def insert(self, query, table_name, append=True, block=True,
+    def _query_and_insert(self, query, table_name=None, append=True, block=True,
                write_disposition=None, allow_large_results=True):
 
         dataset_id, table_id = self._parse_table_name(table_name)
@@ -176,6 +185,21 @@ class Client(ClientBase):
         resp = self._try_execute_and_wait(req, "BQ INSERT")
 
         return resp
+
+    def insert(self, df, table_name):
+
+        dataset_id, table_id = self._parse_table_name(table_name)
+        tabledata = self._bqservice.tabledata()
+
+        for i in range(0, len(df), 5000):
+
+            rows = [{"json": dict(record)} for ix, record in df[i:i+5000].iterrows()]
+            req = tabledata.insertAll(projectId=self._project_id,
+                                      datasetId=dataset_id,
+                                      tableId=table_id,
+                                      body={'rows': rows}).execute()
+            resp = req.execute()
+            time.sleep(0.05)
 
     def load(self, df, table_name, append=True, block=True, job_id=None,
              write_disposition=None, create_disposition="CREATE_IF_NEEDED"):

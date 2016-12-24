@@ -64,7 +64,7 @@ Google `BigQuery`_ (`BigQuery API docs`_)
     client.load(df, "your_dataset.your_table", append=False)
 
     # Insert query result into table. (Override if table exists)
-    client.insert(query_string, "your_dataset.your_table_2")
+    client.query(query_string, table_name="your_dataset.your_table_2")
 
 
 Usage Google Cloud Storage with Pandas

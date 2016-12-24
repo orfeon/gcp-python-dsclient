@@ -87,3 +87,9 @@ ENV/
 
 # Rope project settings
 .ropeproject
+
+# GCP service account keyfile
+service_account_key*.json
+
+# Jupyter noteook for test
+*.ipynb

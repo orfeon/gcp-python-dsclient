@@ -21,7 +21,7 @@ class Client(bigquery.Client, storage.Client, compute.Client):
             self.create_dataset(dataset_id=dataset_id, expiration_ms=3600000)
         table_name = "{0}.{1}".format(dataset_id, table_id)
         try:
-            self.insert(query, table_name)
+            self.query(query, table_name=table_name)
         except:
             if dataset_id == table_id:
                 self.delete_dataset(dataset_id)
