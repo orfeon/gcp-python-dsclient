@@ -38,9 +38,10 @@ class ClientBase(object):
                 """.format(self._keyfile_path)
                 raise Exception(error_message)
 
-            http = httplib2.Http()
-            auth_http = credentials.authorize(http)
-            service = build(api_name, api_version, http=auth_http)
+            #http = httplib2.Http()
+            #auth_http = credentials.authorize(http)
+            #service = build(api_name, api_version, http=auth_http)
+            service = build(api_name, api_version, credentials=credentials)
             return credentials, service
 
     def _try_execute(self, req, retry=3):

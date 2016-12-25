@@ -2,11 +2,12 @@ import os
 import time
 import bigquery
 import storage
+import datastore
 import compute
 from schema import Schema
 
 
-class Client(bigquery.Client, storage.Client, compute.Client):
+class Client(bigquery.Client, storage.Client, datastore.Client, compute.Client):
 
     def __init__(self, project_id, keyfile_path=None, account_email=None):
 

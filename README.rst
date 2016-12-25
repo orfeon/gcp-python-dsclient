@@ -10,9 +10,11 @@ This client supports the following Google Cloud Platform services:
 
 -  `Google BigQuery`_
 -  `Google Cloud Storage`_
+-  `Google Cloud Datastore`_
 
 .. _Google BigQuery: https://github.com/orfeon/gcp-python-dsclient#google-bigquery
 .. _Google Cloud Storage: https://github.com/orfeon/gcp-python-dsclient#google-cloud-storage
+.. _Google Cloud Datastore: https://github.com/orfeon/gcp-python-dsclient#google-cloud-datastore
 
 Quick Start
 -----------
@@ -98,6 +100,20 @@ Google `Cloud Storage`_ (`Storage API docs`_)
     # Read blob data from Cloud Storage.
     reg = client.read_blob("gs://your_bucket/your_file.model")
     prd = reg.predict(df2[["attr1","attr2",...]])
+
+
+Usage Google Cloud Datastore with Pandas
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Google `Cloud Datastore`_ (`Cloud Datastore API docs`_)
+
+.. _Cloud Datastore: https://cloud.google.com/datastore/docs
+.. _Cloud Datastore API docs: https://cloud.google.com/datastore/docs/apis
+
+.. code:: python
+
+    # Query and read data using GQL as pandas.DataFrame
+    df = client.gql("SELECT * FROM SomeKind WHERE date = '20170101'")
 
 
 Usage Google Compute Engine with IPython and IPyParallel
