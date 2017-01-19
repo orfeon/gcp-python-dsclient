@@ -54,8 +54,9 @@ class Client(ClientBase):
             print("\r[{0}] {1} (waiting {2}s)".format(jobname, state, wait_second), end="")
             time.sleep(1)
             wait_second += 1
-            job = jobs.get(projectId=self._project_id, jobId=job_id).execute()
-            state = job["status"]["state"]
+            req = jobs.get(projectId=self._project_id, jobId=job_id)
+            resp = self._try_execute(req)
+            state = resp["status"]["state"]
         print("\r[{0}] {1} (waited {2}s)\n".format(jobname, state, wait_second))
         self._check_joberror(job)
 
