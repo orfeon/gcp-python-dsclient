@@ -173,7 +173,7 @@ class Client(ClientBase):
                 body = init_config.copy()
                 body.update({"name": name})
                 body["disks"][0]["source"] = "zones/{0}/disks/{1}".format(zone, disk)
-                req = instances.insert(project="stage-orfeon", zone=zone, body=body)
+                req = instances.insert(project=self._project_id, zone=zone, body=body)
                 batch.add(req)
         elif image is not None:
             init_config["disks"][0]["initializeParams"] = {'diskSizeGb': sizegb, 'sourceImage': image}
