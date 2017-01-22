@@ -99,18 +99,20 @@ class Client(ClientBase):
                                 "startTime","endTime","bsize"])
 
     def query(self, query, table_name=None, append=True,
-               write_disposition=None, allow_large_results=True, block=True,):
+              write_disposition=None, allow_large_results=True,
+              use_legacy=True, max_tier=None, block=True):
 
         if table_name is None:
-            return self._query_and_get(query)
+            return self._query_and_get(query, use_legacy)
 
         return self._query_and_insert(query=query, table_name=table_name,append=append,
-                                      write_disposition=write_disposition, allow_large_results=allow_large_results, block=block)
+                                      write_disposition=write_disposition, allow_large_results=allow_large_results,
+                                      use_legacy=use_legacy, max_tier=max_tier, block=block)
 
-    def _query_and_get(self, query):
+    def _query_and_get(self, query, use_legacy=True):
 
         jobs = self._bqservice.jobs()
-        body={'query': query, 'timeoutMs': 200000}
+        body={'query': query, 'timeoutMs': 200000, 'useLegacySql': use_legacy}
         req = jobs.query(projectId=self._project_id,body=body)
         resp = self._try_execute(req)
 
@@ -156,7 +158,8 @@ class Client(ClientBase):
         return dfs
 
     def _query_and_insert(self, query, table_name=None, append=True, block=True,
-               write_disposition=None, allow_large_results=True):
+               write_disposition=None, allow_large_results=True,
+               use_legacy=True, max_tier=None):
 
         dataset_id, table_id = self._parse_table_name(table_name)
         if write_disposition is None: #WRITE_TRUNCATE, WRITE_APPEND, WRITE_EMPTY
@@ -171,9 +174,12 @@ class Client(ClientBase):
                       "projectId": self._project_id,
                       "datasetId": dataset_id,
                       "tableId": table_id
-                    }
+                    },
+                    "useLegacySql": use_legacy
                   }
                }}
+        if max_tier:
+            body["configuration"]["query"]["maximumBillingTier"] = max_tier
 
         jobs = self._bqservice.jobs()
         req = jobs.insert(projectId=self._project_id, body=body)
