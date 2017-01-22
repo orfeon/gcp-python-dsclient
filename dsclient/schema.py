@@ -76,6 +76,8 @@ class Schema(object):
 
     def update_dtype(self, df):
 
+        df = df.replace('NaN', np.nan)
+
         if self._scols:
             df[self._scols] = df[self._scols].astype(str)
         if self._bcols:
