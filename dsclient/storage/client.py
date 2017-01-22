@@ -1,4 +1,5 @@
 import time
+import json
 import pickle
 import pandas as pd
 from io import BytesIO
@@ -90,6 +91,25 @@ class Client(ClientBase):
                              name=file_path,
                              media_body=MediaInMemoryUpload(text, mimetype='text/plain'))
         resp = self._try_execute(req, retry=retry)
+
+    def write_json(self, dic, uri, retry=3):
+
+        text = json.dumps(dic)
+        bucket, file_path = self._parse_uri(uri)
+        objects = self._gsservice.objects()
+        req = objects.insert(bucket=bucket,
+                             name=file_path,
+                             media_body=MediaInMemoryUpload(text, mimetype='application/json'))
+        resp = self._try_execute(req, retry=retry)
+
+    def read_json(self, uri, retry=3):
+
+        bucket, file_path = self._parse_uri(uri)
+        objects = self._gsservice.objects()
+        req = objects.get_media(bucket=bucket, object=file_path)
+        resp = self._try_execute(req)
+        dic = json.load(BytesIO(resp))
+        return dic
 
     def write_figure(self, figure, uri, image_type="png", retry=3):
 
