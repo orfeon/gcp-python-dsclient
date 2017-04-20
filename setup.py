@@ -10,10 +10,8 @@ with open(os.path.join(here, 'README.rst')) as f:
 
 install_requires = [
     'pandas>=0.18',
+    'requests>=2',
     'google-api-python-client>=1.5',
-    'google-cloud-datastore>=0.22',
-    'httplib2>=0.9.1',
-    'oauth2client>=2.0.1',
     'ipyparallel>=5.1',
 ]
 
@@ -36,6 +34,7 @@ setup(
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
         'Intended Audience :: Developers',
         'Intended Audience :: Science/Research',
         'License :: OSI Approved :: Apache Software License',

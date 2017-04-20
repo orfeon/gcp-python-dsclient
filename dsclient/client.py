@@ -1,11 +1,9 @@
 import os
 import time
-import bigquery
-import storage
-import datastore
-import compute
-from schema import Schema
-
+from . import bigquery
+from . import storage
+from . import datastore
+from . import compute
 
 class Client(bigquery.Client, storage.Client, datastore.Client, compute.Client):
 

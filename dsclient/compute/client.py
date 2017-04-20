@@ -4,7 +4,7 @@ import sys
 import time
 import requests
 import pandas as pd
-from apiclient.http import BatchHttpRequest
+from googleapiclient.http import BatchHttpRequest
 from googleapiclient.errors import HttpError
 from .. base import ClientBase
 
@@ -23,6 +23,10 @@ class Client(ClientBase):
         self._cecredentials, self._ceservice = super(Client, self)._build_service(Client.__API_NAME,
                                                                                   Client.__API_VERSION,
                                                                                   Client.__ENDPOINT_GCE)
+
+    def get_ceservice(self):
+
+        return self._ceservice
 
     def _try_batch_execute(self, batch, retry=3):
 
@@ -202,7 +206,7 @@ class Client(ClientBase):
             print("\r[CREATE INSTANCE] RUNNING: {0}, SUSPENDED: {1}, PROVISIONING: {2} (waiting {3}s)".format(ndone, nfailed, ndoing, wait_second), end="")
             time.sleep(1)
             wait_second += 1
-        print("\r[CREATE INSTANCE] RUNNING: {0}, SUSPENDED: {1} (waited {2}s)\n".format(ndone, nfailed, wait_second), end="")
+        print("\r[CREATE INSTANCE] RUNNING: {0}, SUSPENDED: {1} (waited {2}s)                    \n".format(ndone, nfailed, wait_second), end="")
 
     def delete_instance(self, zone, names):
 
@@ -295,7 +299,7 @@ class Client(ClientBase):
             print("\r[CREATE DISK] DONE: {0}, FAILED: {1}, DOING: {2} (waiting {3}s)".format(ndone, nfailed, ndoing, wait_second), end="")
             time.sleep(1)
             wait_second += 1
-        print("\r[CREATE DISK] DONE: {0}, FAILED: {1} (waited {2}s)\n".format(ndone, nfailed, wait_second), end="")
+        print("\r[CREATE DISK] DONE: {0}, FAILED: {1} (waited {2}s)              \n".format(ndone, nfailed, wait_second), end="")
 
     def delete_disk(self, zone, disk):
 

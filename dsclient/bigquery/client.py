@@ -1,9 +1,11 @@
 from __future__ import print_function
 import time
+import platform
 import pandas as pd
 from io import BytesIO
-from apiclient.http import MediaInMemoryUpload
-from apiclient.http import BatchHttpRequest
+from io import StringIO
+from googleapiclient.http import MediaInMemoryUpload
+from googleapiclient.http import BatchHttpRequest
 from googleapiclient.errors import HttpError
 from .. base import ClientBase
 from .. schema import Schema, convert_df2bqschema
@@ -23,6 +25,9 @@ class Client(ClientBase):
         self._bqcredentials, self._bqservice = super(Client, self)._build_service(Client.__API_NAME,
                                                                                   Client.__API_VERSION,
                                                                                   Client.__ENDPOINT_GBQ)
+    def get_bqservice(self):
+
+        return self._bqservice
 
     def _parse_table_name(self, table_name):
 
@@ -205,7 +210,7 @@ class Client(ClientBase):
                                       datasetId=dataset_id,
                                       tableId=table_id,
                                       body={'rows': rows}).execute()
-            resp = req.execute()
+            resp = self._try_execute(req)
             time.sleep(0.05)
 
     def load(self, df, table_name, append=True, block=True, job_id=None,
@@ -257,17 +262,22 @@ class Client(ClientBase):
         if isinstance(df, str):
             df = pd.read_csv(df)
 
-        if table is None or not append:
+        if table is None or (not append and "$" not in table.get("tableReference",{"tableId": ""})["tableId"]):
             schema = convert_df2bqschema(df)
             body["configuration"]["load"]["schema"] = schema
 
-        buf = BytesIO()
-        df.to_csv(buf, index=False)
-
+        if platform.python_version_tuple()[0] == "3":
+            buf = StringIO()
+            df.to_csv(buf, index=False)
+            value = str.encode(buf.getvalue())
+        else:
+            buf = BytesIO()
+            df.to_csv(buf, index=False)
+            value = buf.getvalue()
         jobs = self._bqservice.jobs()
         req = jobs.insert(projectId=self._project_id,
                           body=body,
-                          media_body=MediaInMemoryUpload(buf.getvalue(),
+                          media_body=MediaInMemoryUpload(value,
                                                          mimetype='application/octet-stream',
                                                          resumable=True))
 
@@ -420,6 +430,20 @@ class Client(ClientBase):
 
         dataset_id, table_id = self._parse_table_name(table_name)
         tables = self._bqservice.tables()
+        req = tables.insert(projectId=self._project_id,
+                            datasetId=dataset_id,
+                            tableId=table_id,
+                            body=body)
+        resp = self._try_execute(req)
+        return resp
+
+    def create_table_from(self, table_name, source, timePartitioning=None):
+        table = self.get_table(source)
+        dataset_id, table_id = self._parse_table_name(table_name)
+        tables = self._bqservice.tables()
+        body = {
+
+        }
         req = tables.insert(projectId=self._project_id,
                             datasetId=dataset_id,
                             tableId=table_id,

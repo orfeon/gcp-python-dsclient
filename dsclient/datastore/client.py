@@ -15,6 +15,9 @@ class Client(ClientBase):
         self._dscredentials, self._dsservice = super(Client, self)._build_service(Client.__API_NAME,
                                                                                   Client.__API_VERSION,
                                                                                   Client.__ENDPOINT_GDS)
+    def get_dsservice(self):
+
+        return self._dsservice
 
     def gql(self, query):
 
@@ -81,6 +84,7 @@ class Client(ClientBase):
         def convert_dataframe(entities, calc_dtype=False):
 
             rows = [[extract_cols_value(k, v) for k, v in entity["entity"]["properties"].items()] for entity in entities]
+            #vals = [[col[2] for col in row] for row in rows]
             vals = [[col[2] for col in row] for row in rows]
             cols = entities[0]["entity"]["properties"].keys()
             df = pd.DataFrame(vals, columns=cols)
@@ -137,6 +141,6 @@ class Client(ClientBase):
 
         pass
 
-    def put(self, entities):
+    def put(self, entities, keycol):
 
         pass
