@@ -420,7 +420,7 @@ class Client(ClientBase):
 
     def _start_wait_ipcontroller(self, profile, network_ip, engine_file_path):
 
-        command = "ipcontroller start --profile {0} --ip {1} &".format(profile, network_ip)
+        command = "ipcontroller start --profile {0} --location {1} &".format(profile, network_ip)
         ret = os.system(command)
         if ret != 0:
             raise Exception("Failed to start ipcontroller on this host!")
