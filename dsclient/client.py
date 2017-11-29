@@ -4,6 +4,7 @@ from . import bigquery
 from . import storage
 from . import datastore
 from . import compute
+from schema import Schema
 
 class Client(bigquery.Client, storage.Client, datastore.Client, compute.Client):
 
