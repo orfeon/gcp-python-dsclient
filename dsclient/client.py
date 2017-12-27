@@ -4,7 +4,7 @@ from . import bigquery
 from . import storage
 from . import datastore
 from . import compute
-from schema import Schema
+from . import schema
 
 class Client(bigquery.Client, storage.Client, datastore.Client, compute.Client):
 
@@ -46,10 +46,10 @@ class Client(bigquery.Client, storage.Client, datastore.Client, compute.Client):
         if dataset_id == table_id:
             self.delete_dataset(dataset_id)
 
-        schema = Schema(table["schema"])
-        dtype = schema.get_object_dtype()
+        s = schema.Schema(table["schema"])
+        dtype = s.get_object_dtype()
         df = self.read_csv(gs_uri, dtype=dtype)
-        df = schema.update_dtype(df)
+        df = s.update_dtype(df)
 
         self.delete_object(gs_uri)
         if bucket == table_id:

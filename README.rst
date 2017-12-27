@@ -24,7 +24,8 @@ Installation
 
 ::
 
-    $ pip install --upgrade gcp-dsclient
+    $ pip install -U git+https://github.com/orfeon/gcp-python-dsclient
+    $ pip3 install -U git+https://github.com/orfeon/gcp-python-dsclient
 
 
 Initialize Client instance
